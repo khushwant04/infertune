@@ -153,11 +153,11 @@ def test_working_set_uses_target_concurrency_by_default() -> None:
 
 
 KV_BUDGET_4090 = gib(4.98)
-"""Llama-3.1-8B on a 24 GiB RTX 4090, from the README ledger."""
+"""Llama-3.1-8B on a 24 GiB RTX 4090, from the ledger in `docs/plan.md`'s appendix."""
 
 
-def test_readme_example_fits_in_bf16_with_headroom() -> None:
-    """End-to-end reproduction of the README's worked example.
+def test_worked_example_fits_in_bf16_with_headroom() -> None:
+    """End-to-end reproduction of the worked example in `docs/plan.md`'s appendix.
 
     Two independent errors in the original plan compounded here, both conservative:
     reading "24 GB" as decimal GB understated the KV budget by 32%, and composing
