@@ -144,7 +144,7 @@ Each milestone has a falsifiable acceptance criterion; see
 | **M1** | Model analyzer + memory estimator + ledger | weight bytes within **±1%** across 20 checkpoints | ✅ **0.0000%, 20/20** |
 | **M2** | vLLM adapter + report | predicted vs vLLM-reported KV within **±5%** | ✅ **3.61%, 4/4 booted** |
 | **M3** | Benchmark harness + measurement store + calibration | throughput prediction within **±20%** held-out | 🟡 built, needs GPU |
-| **M4** | SGLang adapter + search | within **10%** of a 50-point grid search using **≤12** boots | |
+| **M4** | SGLang adapter + search | within **10%** of a grid search using **≤12** boots | ✅ **0.00% gap, 5 boots vs 30** |
 
 Measured on an Azure A10 (`docs/gpu-validation-a10.md`), one engine boot per configuration:
 

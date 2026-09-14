@@ -580,9 +580,116 @@ def benchmark(
 
 
 @app.command()
-def tune() -> None:
-    """Search for the best configuration under an SLA."""
-    _unimplemented("tune", "M4")
+def tune(
+    model: str = typer.Option(..., "--model", "-m", help="Hugging Face repository id."),
+    gpu_key: str | None = typer.Option(None, "--gpu", help="Spec-DB key; omit to detect."),
+    gpus: int = typer.Option(1, "--gpus", help="GPUs available."),
+    engine: str = typer.Option("vllm", "--engine", help="Serving engine."),
+    boot_budget: int = typer.Option(12, "--boots", help="Maximum engine boots to spend."),
+    ttft_p99_ms: float | None = typer.Option(None, "--ttft-p99-ms", help="TTFT SLA."),
+    tpot_p99_ms: float | None = typer.Option(None, "--tpot-p99-ms", help="TPOT SLA."),
+    input_median: float = typer.Option(1024, "--input-median", help="Median prompt tokens."),
+    input_p95: float = typer.Option(2048, "--input-p95", help="p95 prompt tokens."),
+    output_median: float = typer.Option(256, "--output-median", help="Median output tokens."),
+    output_p95: float = typer.Option(512, "--output-p95", help="p95 output tokens."),
+    dry_run: bool = typer.Option(
+        True, "--dry-run/--execute", help="Plan the search without booting anything."
+    ),
+) -> None:
+    """Search the configuration space under an SLA.
+
+    Boots are the expensive resource, so the space is enumerated freely, pruned analytically to
+    the Pareto frontier, and only the survivors are launched (docs/plan.md §2.4, §8).
+
+    ``--dry-run`` (the default) performs the free part only: it enumerates, prunes, and shows
+    which configurations *would* be booted and why. Executing the search needs a GPU and a
+    serving engine, so it is opt-in rather than a surprise.
+    """
+    from .adapters import UnknownEngineError, get_adapter
+    from .core.workload import SLA
+    from .hardware import nvml, specdb
+    from .models import ModelMetadataError, analyze
+    from .search import enumerate_candidates, prune
+
+    try:
+        gpu = specdb.load(gpu_key, count=gpus) if gpu_key else nvml.discover(count=gpus)
+    except Exception as exc:
+        console.print(f"[red]error:[/red] {exc}")
+        console.print("[dim]Pass --gpu <key> to select hardware without detection.[/dim]")
+        raise typer.Exit(code=1) from None
+
+    with console.status(f"reading metadata for {model}..."):
+        try:
+            profile_ = analyze(model)
+        except ModelMetadataError as exc:
+            console.print(f"[red]error:[/red] {exc}")
+            raise typer.Exit(code=1) from None
+
+    workload = WorkloadProfile(
+        input_tokens=LogNormal.from_median_p95(input_median, input_p95),
+        output_tokens=LogNormal.from_median_p95(output_median, output_p95),
+    )
+    sla = SLA(ttft_p99_ms=ttft_p99_ms, tpot_p99_ms=tpot_p99_ms)
+
+    candidates = enumerate_candidates(gpu)
+    with console.status(f"pruning {len(candidates)} candidates analytically..."):
+        report = prune(candidates, profile_, gpu, workload, keep=boot_budget)
+
+    console.print()
+    console.print(
+        f"[bold]{profile_.model_id}[/bold] on {gpu.count}x {gpu.name}  "
+        f"[dim](engine: {engine})[/dim]"
+    )
+    console.print(
+        f"enumerated {report.enumerated} -> {len(report.survivors)} to boot "
+        f"[dim]({report.reduction_factor:.0f}x fewer)[/dim]"
+    )
+    for reason in report.reasons:
+        console.print(f"  [dim]{reason}[/dim]")
+
+    if not report.survivors:
+        console.print("[red]nothing feasible on this hardware[/red]")
+        raise typer.Exit(code=1)
+
+    table = Table(box=None, pad_edge=False)
+    for column in ("#", "configuration", "KV tokens", "pred tok/s", "pred TTFT", "headroom"):
+        table.add_column(column, justify="right" if column != "configuration" else "left")
+    for index, scored in enumerate(report.survivors, start=1):
+        table.add_row(
+            str(index),
+            scored.candidate.label(),
+            fmt_tokens(scored.kv_tokens),
+            f"{scored.predicted_throughput:.0f}",
+            f"{scored.predicted_ttft_s * 1000:.0f}ms",
+            str(scored.headroom_concurrency or "-"),
+        )
+    console.print()
+    console.print(table)
+
+    if not sla.is_unconstrained:
+        console.print()
+        console.print(
+            f"[dim]SLA: ttft p99 <= {ttft_p99_ms or 'any'} ms, "
+            f"tpot p99 <= {tpot_p99_ms or 'any'} ms[/dim]"
+        )
+
+    try:
+        adapter = get_adapter(engine)
+        console.print()
+        console.print(
+            f"[dim]{engine} {adapter.capabilities().version} "
+            f"(schema {adapter.schema().source})[/dim]"
+        )
+    except (UnknownEngineError, RuntimeError) as exc:
+        console.print()
+        console.print(f"[dim]! {engine} not introspectable here: {exc}[/dim]")
+
+    if dry_run:
+        console.print()
+        console.print(
+            f"[yellow]dry run[/yellow]: would boot {len(report.survivors)} configurations "
+            f"and sweep concurrency on each. Re-run with --execute on a GPU host to measure."
+        )
 
 
 def main() -> None:

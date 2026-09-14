@@ -55,7 +55,7 @@ files = ["src", "tests"]
 [[tool.mypy.overrides]]
 # Optional, GPU-only dependencies that are deliberately absent from CI. They are imported
 # lazily inside functions, so their absence is a supported runtime state, not an error.
-module = ["typer", "rich.*", "vllm", "vllm.*", "pynvml"]
+module = ["typer", "rich.*", "vllm", "vllm.*", "sglang", "sglang.*", "pynvml"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
