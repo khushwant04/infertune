@@ -32,29 +32,37 @@ together:
 
 ```
 Ledger (per GPU)                      Llama-3.1-8B · RTX 4090 24GB · vLLM · bf16
-  total VRAM                             24.00 GB   (22.35 GiB usable after driver)
-  weights (safetensors-measured)         16.06 GB   (14.96 GiB)
-  CUDA context + NCCL                     0.55 GiB
-  CUDA graph pool (-O2)                   1.20 GiB
-  prefill activations @ 8192 tokens       0.85 GiB
-  logits/sampling @ 24 seqs, 128256 vocab 0.35 GiB
-  fragmentation safety (3%)               0.67 GiB
-  ──────────────────────────────────────────────────
-  KV budget                               3.77 GiB = 30,900 tokens @ 128 KiB/token
+  total VRAM                             23.99 GiB  (24564 MiB, as NVML reports it)
+  usable after driver/display            -23.60 GiB
+  weights (safetensors-measured)          14.96 GiB
+  CUDA context + NCCL                      0.55 GiB
+  CUDA graph pool (-O2)                    1.20 GiB
+  prefill activations @ 8192 tokens         0.85 GiB
+  logits/sampling @ 24 seqs, 128256 vocab   0.35 GiB
+  fragmentation safety (3%)                 0.71 GiB
+  ───────────────────────────────────────────────────
+  KV budget                                4.98 GiB = 40,796 tokens @ 128 KiB/token
 
-Workload: input ~1024 (p95 2048), output ~256 (p95 512)
-  working set @ 24 concurrent    p50 3.37 GiB    p95 7.50 GiB
-  BINDING CONSTRAINT: kv_working_set_p95 (7.50 GiB) > kv_budget (3.77 GiB)
-  B* ≈ 51 — concurrency 24 is bandwidth-bound, so KV is the wall, not compute.
+Workload: input median 1024 / p95 2048, output median 256 / p95 512
+  working set @ 24 concurrent    p50 30,092    p95 34,476    p99 36,386 tokens
+  → fits at p99 in bf16, with room to raise concurrency to ~28
+  BINDING CONSTRAINT: kv_working_set — the cache, not the GPU, caps concurrency
+  B* ≈ 51: decode is still bandwidth-bound at this concurrency, so added
+           concurrency is nearly free on latency — but KV runs out first.
 
-  Mitigations, cheapest first:
-    kv_cache_dtype=fp8       → 61,800 tokens, just clears p95
-    -O0 / enforce-eager      → reclaims 1.2 GiB graph pool, costs decode perf
-    max_model_len 8192→4096  → caps the tail instead of serving it
+  To reach the compute knee:
+    kv_cache_dtype=fp8  → 81,592 tokens, carries concurrency to ~48 (≈ B*)
+
+  (naive per-request p95 would have read 61,440 tokens — 1.78x overstated)
 ```
 
 Every number traces to a term in the ledger or a term in the roofline model. The tool always
 names the **binding constraint**, so it can answer "why not higher?"
+
+Both figures above are computed by the code in this repo, not by hand — see
+`tests/test_workload.py::test_readme_example_fits_in_bf16_with_headroom`. An earlier draft of
+this example got them wrong in two compounding ways, which is documented in
+[`docs/plan.md §2.6`](docs/plan.md) as a cautionary note.
 
 ## Design commitments
 
@@ -65,6 +73,9 @@ Five decisions that shape everything else. Rationale and arithmetic in
    per *token*, not per slot — `max_num_seqs × max_model_len` is a scheduler admission limit, not
    a reservation. The real constraint is the expected working set, which is undefined without a
    workload. Output is probabilistic (p50/p95), with preemption risk as a first-class result.
+   Note that the aggregate p95 is *not* the sum of per-request p95 lengths: summing independent
+   sequences concentrates the total, so composing percentiles overstates the tail by ~1.8x at
+   realistic concurrency. The working set is therefore sampled, not composed.
 
 2. **Carry bytes, never fractions.** vLLM's `--gpu-memory-utilization` covers weights +
    activations + KV; SGLang's `--mem-fraction-static` covers weights + KV only. The same `0.88`

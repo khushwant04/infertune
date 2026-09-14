@@ -1,0 +1,58 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "infertune"
+version = "0.0.0"
+description = "GPU-aware inference configuration profiler"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Apache-2.0" }
+
+# NOTE: infertune.core is deliberately stdlib-only; see tests/test_core_purity.py.
+# These dependencies exist for the CLI/reporting layers only.
+dependencies = [
+    "typer>=0.12",
+    "rich>=13.7",
+]
+
+[project.optional-dependencies]
+hf = ["huggingface-hub>=0.24"]
+nvml = ["nvidia-ml-py>=12.560"]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.6",
+    "mypy>=1.11",
+]
+
+[project.scripts]
+infertune = "infertune.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/infertune"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "A", "C4", "PT", "SIM", "RUF"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["PT011"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_unreachable = true
+files = ["src", "tests"]
+
+[[tool.mypy.overrides]]
+module = ["typer", "rich.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q --strict-markers"

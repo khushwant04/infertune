@@ -1,0 +1,92 @@
+"""CLI smoke tests.
+
+The M0 acceptance criterion is that ``infertune --help`` works. Beyond that, the
+important behaviour is that unimplemented commands *fail* rather than emit numbers.
+"""
+
+from __future__ import annotations
+
+from typer.testing import CliRunner
+
+from infertune.cli import app
+
+runner = CliRunner()
+
+
+def test_help_works() -> None:
+    result = runner.invoke(app, ["--help"])
+    assert result.exit_code == 0
+    assert "inference configuration profiler" in result.stdout
+
+
+def test_version() -> None:
+    result = runner.invoke(app, ["version"])
+    assert result.exit_code == 0
+    assert "infertune" in result.stdout
+
+
+def test_kv_command_reports_llama_31_8b() -> None:
+    result = runner.invoke(app, ["kv", "--layers", "32", "--kv-heads", "8", "--head-dim", "128"])
+    assert result.exit_code == 0
+    assert "128.00 KiB" in result.stdout
+
+
+def test_kv_command_converts_a_budget_to_tokens() -> None:
+    result = runner.invoke(
+        app,
+        ["kv", "-l", "32", "-k", "8", "-d", "128", "--budget", "3.77GiB"],
+    )
+    assert result.exit_code == 0
+    assert "30,883" in result.stdout  # 3.77 GiB / 128 KiB, floor-divided
+
+
+def test_kv_command_warns_about_head_replication() -> None:
+    result = runner.invoke(app, ["kv", "-l", "32", "-k", "8", "-d", "128", "--tp", "16"])
+    assert result.exit_code == 0
+    assert "replication" in result.stdout.lower()
+
+
+def test_kv_command_rejects_a_bad_dtype() -> None:
+    result = runner.invoke(app, ["kv", "-l", "32", "-k", "8", "-d", "128", "--dtype", "float9"])
+    assert result.exit_code == 1
+    assert "unknown dtype" in result.stdout
+
+
+def test_kv_command_rejects_a_bad_budget() -> None:
+    result = runner.invoke(app, ["kv", "-l", "32", "-k", "8", "-d", "128", "--budget", "lots"])
+    assert result.exit_code == 1
+
+
+def test_working_set_command_reports_the_naive_overstatement() -> None:
+    result = runner.invoke(
+        app,
+        [
+            "working-set",
+            "-c",
+            "24",
+            "--input-median",
+            "1024",
+            "--input-p95",
+            "2048",
+            "--output-median",
+            "256",
+            "--output-p95",
+            "512",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "overstated" in result.stdout
+
+
+def test_unimplemented_commands_exit_nonzero_with_a_milestone() -> None:
+    """Never print plausible numbers for unbuilt features."""
+    for command, milestone in (
+        ("profile", "M2"),
+        ("plan", "M2"),
+        ("benchmark", "M3"),
+        ("tune", "M4"),
+    ):
+        result = runner.invoke(app, [command])
+        assert result.exit_code == 2, command
+        assert milestone in result.stdout, command
+        assert "docs/plan.md" in result.stdout, command
