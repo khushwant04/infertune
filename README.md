@@ -4,10 +4,16 @@
 workload, it determines a safe and near-optimal deployment configuration — and shows the memory
 arithmetic that justifies it.
 
-> **Status: M1 complete.** The analyzer and memory estimator work today — `infertune plan`
-> produces a full memory ledger for any Hub model on any GPU in the spec database, with no GPU
-> and no model download required. Engine adapters, benchmarking and search (M2–M4) are not built
-> yet. Architecture and implementation plan: [`docs/plan.md`](docs/plan.md).
+> **Status: M0–M4 complete.** The analyzer, memory estimator, vLLM and SGLang adapters,
+> benchmark harness, calibration and configuration search all work. `infertune plan` needs no
+> GPU and no model download; `infertune profile` uses detected hardware and the installed
+> engine's own flags. The memory ledger is validated against real vLLM to **3.61%**; search
+> matches an exhaustive grid **exactly** on 5 boots instead of 30.
+>
+> Two gaps stated plainly: M3's throughput-prediction accuracy (±20%) is **not yet measured**
+> because it needs sustained GPU load, and **fp8 paths are unvalidated** (they require sm_89;
+> the A10 used for validation is sm_86). Architecture and rationale:
+> [`docs/plan.md`](docs/plan.md).
 
 ```bash
 pip install -e .
