@@ -82,10 +82,7 @@ def test_working_set_command_reports_the_naive_overstatement() -> None:
 
 def test_unimplemented_commands_exit_nonzero_with_a_milestone() -> None:
     """Never print plausible numbers for unbuilt features."""
-    for command, milestone in (
-        ("benchmark", "M3"),
-        ("tune", "M4"),
-    ):
+    for command, milestone in (("tune", "M4"),):
         result = runner.invoke(app, [command])
         assert result.exit_code == 2, command
         assert milestone in result.stdout, command
@@ -106,6 +103,20 @@ def test_profile_without_a_gpu_fails_clearly_and_points_at_plan() -> None:
     assert result.exit_code == 2
     assert "no GPU detected" in result.stdout
     assert "infertune plan" in result.stdout
+
+
+def test_benchmark_declares_expected_options() -> None:
+    from infertune.cli import benchmark
+
+    declared = _declared_option_names(benchmark)
+    for option in ("--model", "--url", "--concurrencies", "--store", "--ttft-p99-ms"):
+        assert option in declared, f"{option} missing; found {sorted(declared)}"
+
+
+def test_benchmark_fails_clearly_without_an_engine() -> None:
+    result = runner.invoke(app, ["benchmark", "--model", "m", "--url", "http://127.0.0.1:1"])
+    assert result.exit_code == 1
+    assert "no engine responding" in result.stdout
 
 
 def test_gpus_command_lists_the_spec_database() -> None:

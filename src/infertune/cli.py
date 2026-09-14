@@ -432,9 +432,151 @@ def plan_cmd(
 
 
 @app.command()
-def benchmark() -> None:
-    """Benchmark a configuration and record the measurements."""
-    _unimplemented("benchmark", "M3")
+def benchmark(
+    model: str = typer.Option(..., "--model", "-m", help="Model name the server serves."),
+    base_url: str = typer.Option("http://127.0.0.1:8000", "--url", help="Engine base URL."),
+    concurrencies: str = typer.Option(
+        "1,2,4,8,16,32", "--concurrencies", help="Comma-separated ladder."
+    ),
+    requests_per_point: int = typer.Option(32, "--requests", help="Requests per point."),
+    input_median: float = typer.Option(1024, "--input-median", help="Median prompt tokens."),
+    input_p95: float = typer.Option(2048, "--input-p95", help="p95 prompt tokens."),
+    output_median: float = typer.Option(256, "--output-median", help="Median output tokens."),
+    output_p95: float = typer.Option(512, "--output-p95", help="p95 output tokens."),
+    ttft_p99_ms: float | None = typer.Option(None, "--ttft-p99-ms", help="TTFT SLA."),
+    tpot_p99_ms: float | None = typer.Option(None, "--tpot-p99-ms", help="TPOT SLA."),
+    store_path: str | None = typer.Option(None, "--store", help="SQLite file to record into."),
+    gpu_name: str = typer.Option("", "--gpu-name", help="Label for the store key."),
+    engine_version: str = typer.Option("", "--engine-version", help="Label for the store key."),
+) -> None:
+    """Sweep concurrency against a **running** engine and record the curve.
+
+    Deliberately does not start or stop anything. Engine boots cost minutes while changing
+    client-side concurrency costs nothing, so one boot should yield the whole
+    latency-throughput curve (see docs/plan.md §2.4).
+    """
+    from .bench import EndpointConfig, SweepConfig, sweep_concurrency, wait_for_endpoint
+    from .core.workload import SLA
+    from .store import MeasurementStore, RunKey, StoredPoint, StoredRun
+
+    try:
+        ladder = tuple(sorted({int(x) for x in concurrencies.split(",") if x.strip()}))
+        if not ladder:
+            raise ValueError("empty ladder")
+        config = SweepConfig(concurrencies=ladder, requests_per_point=requests_per_point)
+        workload = WorkloadProfile(
+            input_tokens=LogNormal.from_median_p95(input_median, input_p95),
+            output_tokens=LogNormal.from_median_p95(output_median, output_p95),
+        )
+    except ValueError as exc:
+        console.print(f"[red]error:[/red] {exc}")
+        raise typer.Exit(code=1) from None
+
+    endpoint = EndpointConfig(base_url=base_url, model=model)
+    console.print(f"waiting for {base_url} ...")
+    if not wait_for_endpoint(endpoint, timeout_s=120, interval_s=2):
+        console.print(f"[red]error:[/red] no engine responding at {base_url}")
+        raise typer.Exit(code=1)
+
+    sla = SLA(ttft_p99_ms=ttft_p99_ms, tpot_p99_ms=tpot_p99_ms)
+    table = Table(box=None, pad_edge=False)
+    for column, justify in (
+        ("conc", "right"),
+        ("out tok/s", "right"),
+        ("req/s", "right"),
+        ("ttft p50", "right"),
+        ("ttft p99", "right"),
+        ("tpot p50", "right"),
+        ("tpot p99", "right"),
+        ("err", "right"),
+    ):
+        table.add_column(column, justify=justify)  # type: ignore[arg-type]
+
+    def show(point: object) -> None:
+        p = point  # BenchmarkResult
+        table.add_row(
+            str(p.concurrency),  # type: ignore[attr-defined]
+            f"{p.output_throughput_tokens_s:.0f}",  # type: ignore[attr-defined]
+            f"{p.requests_per_s:.2f}",  # type: ignore[attr-defined]
+            f"{p.ttft.p50_ms:.0f}ms",  # type: ignore[attr-defined]
+            f"{p.ttft.p99_ms:.0f}ms",  # type: ignore[attr-defined]
+            f"{p.tpot.p50_ms:.1f}ms",  # type: ignore[attr-defined]
+            f"{p.tpot.p99_ms:.1f}ms",  # type: ignore[attr-defined]
+            f"{p.error_rate:.0%}",  # type: ignore[attr-defined]
+        )
+
+    with console.status("sweeping..."):
+        sweep = sweep_concurrency(
+            endpoint,
+            workload,
+            config,
+            sla=sla,
+            model=model,
+            engine="vllm",
+            engine_version=engine_version,
+            gpu=gpu_name,
+            on_point=show,
+        )
+    console.print(table)
+
+    best = sweep.best_throughput
+    if best is not None:
+        console.print()
+        console.print(
+            f"best throughput   : [bold]{best.output_throughput_tokens_s:.0f}[/bold] "
+            f"output tok/s at concurrency {best.concurrency}"
+        )
+    if sweep.saturation_concurrency is not None:
+        console.print(
+            f"saturation point  : concurrency {sweep.saturation_concurrency} "
+            "[dim](empirical critical batch size)[/dim]"
+        )
+    if not sla.is_unconstrained:
+        knee = sweep.knee(ttft_p99_ms=ttft_p99_ms, tpot_p99_ms=tpot_p99_ms)
+        if knee is None:
+            console.print("[yellow]no operating point satisfied the SLA[/yellow]")
+        else:
+            console.print(
+                f"SLA knee          : concurrency {knee.concurrency} at "
+                f"{knee.output_throughput_tokens_s:.0f} output tok/s"
+            )
+    for note in sweep.notes:
+        console.print(f"[dim]! {note}[/dim]")
+
+    if store_path:
+        store = MeasurementStore(store_path)
+        run_id = store.record(
+            StoredRun(
+                key=RunKey(
+                    gpu=gpu_name or "unknown",
+                    model=model,
+                    engine="vllm",
+                    engine_version=engine_version or "unknown",
+                ),
+                points=tuple(
+                    StoredPoint(
+                        concurrency=p.concurrency,
+                        duration_s=p.duration_s,
+                        requests_ok=len(p.successful),
+                        requests_failed=len(p.failed),
+                        prompt_tokens=p.prompt_tokens,
+                        output_tokens=p.output_tokens,
+                        output_tps=p.output_throughput_tokens_s,
+                        ttft_p50_ms=p.ttft.p50_ms or None,
+                        ttft_p99_ms=p.ttft.p99_ms or None,
+                        tpot_p50_ms=p.tpot.p50_ms or None,
+                        tpot_p99_ms=p.tpot.p99_ms or None,
+                    )
+                    for p in sweep.points
+                ),
+                notes=" | ".join(sweep.notes),
+            )
+        )
+        runs, points = store.count()
+        console.print()
+        console.print(
+            f"[dim]recorded run {run_id} in {store_path} ({runs} runs, {points} points)[/dim]"
+        )
 
 
 @app.command()
