@@ -45,6 +45,19 @@ def test_lookup_by_product_name() -> None:
     assert specdb.load("NVIDIA H100 SXM").name == "NVIDIA H100 SXM"
 
 
+def test_vgpu_profile_suffix_resolves_to_the_board() -> None:
+    """NVML reports profile names on virtualised GPUs, e.g. 'NVIDIA A10-24Q'.
+
+    Without stripping the suffix, a live Azure A10 misses the database entirely and falls
+    back to coarse FLOPS priors — which showed up as a critical batch size of 94 instead of
+    the correct 130.
+    """
+    assert specdb.load("NVIDIA A10-24Q").name == "NVIDIA A10"
+    assert specdb.load("NVIDIA A10-24Q").critical_batch_size(DType.BF16) == pytest.approx(
+        specdb.load("a10").critical_batch_size(DType.BF16)
+    )
+
+
 def test_lookup_is_case_and_separator_insensitive() -> None:
     assert specdb.load("H100_SXM").name == specdb.load("h100-sxm").name
 
@@ -103,10 +116,25 @@ def test_fp8_support_is_capability_gated() -> None:
 
 
 def test_usable_fraction_leaves_room_for_the_driver() -> None:
+    """`vram_usable_bytes` means torch-allocatable, so the gap is the driver/vGPU reserve.
+
+    Bare-metal cards reserve 1-2%. Virtualised GPUs reserve far more: the Azure A10-24Q
+    measures 2.349 GiB of 23.722 GiB (9.9%) consumed before any allocation, which is exactly
+    why vLLM's gpu-memory-utilization cannot exceed ~0.90 there.
+    """
     for key in specdb.available():
         gpu = specdb.load(key)
         overhead = 1 - gpu.vram_usable_bytes / gpu.vram_bytes
-        assert 0.005 < overhead < 0.05, f"{key} reserves an implausible {overhead:.1%}"
+        assert 0.005 < overhead < 0.15, f"{key} reserves an implausible {overhead:.1%}"
+
+
+def test_a10_reserve_matches_the_measured_vgpu_overhead() -> None:
+    """Regression guard on the measured figure that fixes the utilization ceiling."""
+    gpu = specdb.load("a10")
+    reserve = gpu.vram_bytes - gpu.vram_usable_bytes
+    assert to_gib(reserve) == pytest.approx(2.37, abs=0.05)
+    # This ratio *is* vLLM's real gpu-memory-utilization ceiling on this card.
+    assert gpu.vram_usable_bytes / gpu.vram_bytes == pytest.approx(0.901, abs=0.002)
 
 
 def test_load_is_cached_but_returns_equal_values() -> None:
