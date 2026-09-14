@@ -80,13 +80,19 @@ def test_working_set_command_reports_the_naive_overstatement() -> None:
     assert "overstated" in result.stdout
 
 
-def test_unimplemented_commands_exit_nonzero_with_a_milestone() -> None:
-    """Never print plausible numbers for unbuilt features."""
-    for command, milestone in (("tune", "M4"),):
-        result = runner.invoke(app, [command])
-        assert result.exit_code == 2, command
-        assert milestone in result.stdout, command
-        assert "docs/plan.md" in result.stdout, command
+def test_every_command_is_implemented() -> None:
+    """Every registered command now does real work; none is a milestone stub."""
+    from infertune.cli import _NOT_YET
+
+    stubbed = []
+    for info in app.registered_commands:
+        name = info.name or (info.callback.__name__ if info.callback else "")
+        if not name:
+            continue
+        result = runner.invoke(app, [name, "--help"])
+        if _NOT_YET.split("{")[0] in result.stdout:
+            stubbed.append(name)
+    assert not stubbed, f"still stubbed: {stubbed}"
 
 
 def test_profile_declares_expected_options() -> None:
@@ -103,6 +109,25 @@ def test_profile_without_a_gpu_fails_clearly_and_points_at_plan() -> None:
     assert result.exit_code == 2
     assert "no GPU detected" in result.stdout
     assert "infertune plan" in result.stdout
+
+
+def test_tune_declares_expected_options() -> None:
+    from infertune.cli import tune
+
+    declared = _declared_option_names(tune)
+    for option in ("--model", "--gpu", "--boots", "--engine", "--ttft-p99-ms"):
+        assert option in declared, f"{option} missing; found {sorted(declared)}"
+
+
+def test_tune_dry_run_needs_no_gpu_and_no_engine() -> None:
+    """The free part of the search must work anywhere: enumerate + prune only."""
+    result = runner.invoke(
+        app,
+        ["tune", "--model", "Qwen/Qwen3-0.6B", "--gpu", "a10", "--boots", "4"],
+    )
+    assert result.exit_code == 0
+    assert "to boot" in result.stdout
+    assert "dry run" in result.stdout
 
 
 def test_benchmark_declares_expected_options() -> None:

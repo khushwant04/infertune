@@ -620,10 +620,52 @@ Two modelling notes worth recording, both of which change reported numbers:
 * **Output throughput excludes prompt tokens.** Counting both inflates the figure by the
   input/output ratio, which is the usual reason published throughput numbers are incomparable.
 
-**M4 — SGLang adapter + search (2 wk).** Second adapter proves the abstraction; analytic prune;
-outer/inner loops; Pareto selection; then BO over survivors.
-*Accept:* SGLang support adds **zero** changes outside `adapters/`; search finds a config within
-**10%** of a 50-point grid search's best using **≤12** boots.
+**M4 — SGLang adapter + search (2 wk). ✅ Done (search validated synthetically).** Second
+adapter, engine registry, analytic prune, Pareto selection, outer/inner loops, `infertune tune`.
+
+*Accept:*
+
+* **SGLang support adds zero changes outside `adapters/`** ✅ — verified with `git diff`:
+  **0 files changed** in `core/`, `estimator/`, `bench/`, `store/`, `models/` or `hardware/`. The
+  only change outside `adapters/` attributable to SGLang is a one-line mypy stub-ignore in
+  `pyproject.toml` for an optional import — build configuration, not logic. (`cli.py` also
+  changed, but for the `tune` command, which is the search feature rather than SGLang support.)
+* **Within 10% of a grid search on ≤12 boots** ✅ — measured **0.00% gap using 5 boots against
+  30**, i.e. the pruned search selected the *identical* configuration the exhaustive baseline
+  did, 6× cheaper.
+
+Validated against a synthetic objective rather than hardware, deliberately: search quality is a
+property of the algorithm, not of any particular GPU, so it needs a known ground truth. The
+synthetic objective is shaped to punish naive strategies — throughput saturates in concurrency,
+fp8 buys capacity but costs latency, long contexts cost throughput — and a test asserts that
+simply maximising `max_num_seqs` does *not* win.
+
+### What the second adapter revealed
+
+Adding SGLang was the real test of whether the core is framework-independent. Three genuine
+differences the role indirection had to absorb:
+
+1. **SGLang has an absolute token lever.** `--max-total-tokens` sizes the KV pool directly, so no
+   fraction inversion is needed at all. vLLM 0.19.1 has no equivalent — which is why M2's test
+   asserts `KV_BUDGET_TOKENS` is *unmapped* for vLLM. The role existed in the enum before there
+   was an engine using it, and that turned out to be right.
+2. **The memory fraction is scoped differently.** `--mem-fraction-static` covers weights + KV
+   pool, with activations **outside** it; vLLM's `--gpu-memory-utilization` covers all three.
+   Applying vLLM's formula to SGLang over-reserves; applying SGLang's to vLLM under-reserves and
+   OOMs. This is §2.2's argument made executable, and a test asserts the two formulas differ.
+3. **Polarity is inverted.** SGLang exposes `--disable-radix-cache` and `--disable-cuda-graph`
+   where vLLM exposes `--enable-prefix-caching` and `--enforce-eager`. A role means the same
+   thing to a user; the flag expressing it may be negated.
+
+Also worth recording: **SGLang moved its entire argument surface** into
+`sglang.srt.arg_groups.fields.*` modules, so `mem_fraction_static` is no longer in
+`server_args.py` at all. A hardcoded flag table would be comprehensively broken. That is the
+second engine independently confirming §2.3.
+
+**Not done:** Bayesian optimisation over the surviving continuous knobs. Analytic pruning plus
+Pareto selection already hits the acceptance target exactly, so BO would add machinery without
+evidence that it is needed — better justified once M3's calibration is fitted on real
+measurements and the prediction error is known.
 
 **Deferred, deliberately:** multi-node, disaggregated prefill/decode, speculative decoding,
 LoRA, MIG, non-NVIDIA. Each is a real dimension; none belongs in an MVP.

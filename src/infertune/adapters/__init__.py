@@ -18,6 +18,8 @@ from .base import (
     Severity,
     StartupFacts,
 )
+from .registry import UnknownEngineError, available_engines, get_adapter
+from .sglang import SGLangAdapter, SGLangSchemaError
 from .vllm import VLLMAdapter, VLLMSchemaError, introspect_installed, load_schema
 
 __all__ = [
@@ -28,10 +30,15 @@ __all__ = [
     "ParamRole",
     "ParamSchema",
     "ParamSpec",
+    "SGLangAdapter",
+    "SGLangSchemaError",
     "Severity",
     "StartupFacts",
+    "UnknownEngineError",
     "VLLMAdapter",
     "VLLMSchemaError",
+    "available_engines",
+    "get_adapter",
     "introspect_installed",
     "load_schema",
 ]

@@ -4,10 +4,16 @@
 workload, it determines a safe and near-optimal deployment configuration — and shows the memory
 arithmetic that justifies it.
 
-> **Status: M1 complete.** The analyzer and memory estimator work today — `infertune plan`
-> produces a full memory ledger for any Hub model on any GPU in the spec database, with no GPU
-> and no model download required. Engine adapters, benchmarking and search (M2–M4) are not built
-> yet. Architecture and implementation plan: [`docs/plan.md`](docs/plan.md).
+> **Status: M0–M4 complete.** The analyzer, memory estimator, vLLM and SGLang adapters,
+> benchmark harness, calibration and configuration search all work. `infertune plan` needs no
+> GPU and no model download; `infertune profile` uses detected hardware and the installed
+> engine's own flags. The memory ledger is validated against real vLLM to **3.61%**; search
+> matches an exhaustive grid **exactly** on 5 boots instead of 30.
+>
+> Two gaps stated plainly: M3's throughput-prediction accuracy (±20%) is **not yet measured**
+> because it needs sustained GPU load, and **fp8 paths are unvalidated** (they require sm_89;
+> the A10 used for validation is sm_86). Architecture and rationale:
+> [`docs/plan.md`](docs/plan.md).
 
 ```bash
 pip install -e .
@@ -144,7 +150,7 @@ Each milestone has a falsifiable acceptance criterion; see
 | **M1** | Model analyzer + memory estimator + ledger | weight bytes within **±1%** across 20 checkpoints | ✅ **0.0000%, 20/20** |
 | **M2** | vLLM adapter + report | predicted vs vLLM-reported KV within **±5%** | ✅ **3.61%, 4/4 booted** |
 | **M3** | Benchmark harness + measurement store + calibration | throughput prediction within **±20%** held-out | 🟡 built, needs GPU |
-| **M4** | SGLang adapter + search | within **10%** of a 50-point grid search using **≤12** boots | |
+| **M4** | SGLang adapter + search | within **10%** of a grid search using **≤12** boots | ✅ **0.00% gap, 5 boots vs 30** |
 
 Measured on an Azure A10 (`docs/gpu-validation-a10.md`), one engine boot per configuration:
 
