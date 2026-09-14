@@ -83,7 +83,6 @@ def test_working_set_command_reports_the_naive_overstatement() -> None:
 def test_unimplemented_commands_exit_nonzero_with_a_milestone() -> None:
     """Never print plausible numbers for unbuilt features."""
     for command, milestone in (
-        ("profile", "M2"),
         ("benchmark", "M3"),
         ("tune", "M4"),
     ):
@@ -91,6 +90,22 @@ def test_unimplemented_commands_exit_nonzero_with_a_milestone() -> None:
         assert result.exit_code == 2, command
         assert milestone in result.stdout, command
         assert "docs/plan.md" in result.stdout, command
+
+
+def test_profile_declares_expected_options() -> None:
+    from infertune.cli import profile
+
+    declared = _declared_option_names(profile)
+    for option in ("--model", "--max-num-seqs", "--max-model-len", "--tp", "--gpu"):
+        assert option in declared, f"{option} not declared; found {sorted(declared)}"
+
+
+def test_profile_without_a_gpu_fails_clearly_and_points_at_plan() -> None:
+    """No GPU here, so `profile` must refuse and name the hardware-free alternative."""
+    result = runner.invoke(app, ["profile", "--model", "Qwen/Qwen3-0.6B"])
+    assert result.exit_code == 2
+    assert "no GPU detected" in result.stdout
+    assert "infertune plan" in result.stdout
 
 
 def test_gpus_command_lists_the_spec_database() -> None:

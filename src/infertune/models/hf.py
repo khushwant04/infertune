@@ -331,6 +331,21 @@ def build_quant_spec(cfg: Config) -> QuantSpec | None:
     )
 
 
+def _effective_intermediate(cfg: Config, moe: MoESpec | None) -> int | None:
+    """MLP inner width activated per token.
+
+    For MoE, each token is routed to ``n_experts_per_token`` experts plus any shared
+    experts, so the activated width is the per-expert width times that count -- not the
+    dense ``intermediate_size``.
+    """
+    if moe is not None:
+        per_expert = cfg.get("moe_intermediate_size")
+        if isinstance(per_expert, int) and per_expert > 0:
+            return per_expert * (moe.n_experts_per_token + moe.n_shared_experts)
+    value = cfg.get("intermediate_size")
+    return value if isinstance(value, int) and value > 0 else None
+
+
 def _weight_dtype(cfg: Config) -> DType:
     raw = cfg.get("torch_dtype") or cfg.get("dtype") or "bfloat16"
     return _TORCH_DTYPES.get(str(raw), DType.BF16)
@@ -423,6 +438,7 @@ def profile_from_config(
         moe=moe,
         quant=quant,
         tied_embeddings=bool(cfg.get("tie_word_embeddings")),
+        intermediate_size=_effective_intermediate(cfg, moe),
         weight_bytes_source=measurement.source,
         warnings=tuple(warnings),
     )

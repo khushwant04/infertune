@@ -32,7 +32,12 @@ from pathlib import Path
 from infertune.adapters import VLLMAdapter
 from infertune.core import LogNormal, WorkloadProfile, fmt_bytes, fmt_tokens
 from infertune.core.gpu import GPUProfile
+from infertune.core.plan import Parallelism
 from infertune.estimator import InfeasibleConfigurationError, estimate_plan
+from infertune.estimator.memory import (
+    estimate_overheads,
+    predict_kv_for_utilization,
+)
 from infertune.hardware import nvml, specdb
 from infertune.models import ModelMetadataError, analyze
 
@@ -50,6 +55,7 @@ class Result:
     ok: bool
     max_num_seqs: int
     max_model_len: int
+    total_bytes: int | None = None
     gpu_memory_utilization: float | None = None
     predicted_kv_bytes: int | None = None
     actual_kv_bytes: int | None = None
@@ -71,12 +77,38 @@ class Result:
         return self._pct(self.predicted_kv_bytes, self.actual_kv_bytes)
 
     @property
+    def kv_abs_error_bytes(self) -> int | None:
+        """Absolute miss, which is the scale-free measure of the overhead model.
+
+        Relative KV error is misleading on weights-dominated configurations: the same
+        absolute overhead error is a small fraction of a large cache and a large fraction
+        of a small one.
+        """
+        if self.predicted_kv_bytes is None or self.actual_kv_bytes is None:
+            return None
+        return abs(self.predicted_kv_bytes - self.actual_kv_bytes)
+
+    @property
+    def kv_share_of_budget(self) -> float | None:
+        """Share of the engine's memory budget that ended up as KV cache."""
+        if self.actual_kv_bytes is None or not self.gpu_memory_utilization:
+            return None
+        if self.total_bytes is None:
+            return None
+        budget = self.gpu_memory_utilization * self.total_bytes
+        return self.actual_kv_bytes / budget if budget else None
+
+    @property
     def weight_error_pct(self) -> float | None:
         return self._pct(self.predicted_weight_bytes, self.actual_weight_bytes)
 
     @property
     def bytes_per_token_error_pct(self) -> float | None:
         return self._pct(self.predicted_bytes_per_token, self.actual_bytes_per_token)
+
+
+def _pct(value: float | None) -> str:
+    return f"{value:.2f}%" if value is not None else "-"
 
 
 def resolve_gpu(key: str | None) -> GPUProfile:
@@ -161,6 +193,7 @@ def validate_one(
     res.predicted_kv_tokens = plan.kv_budget_tokens
     res.predicted_weight_bytes = plan.weight_bytes_per_gpu
     res.predicted_bytes_per_token = plan.kv_bytes_per_token
+    res.total_bytes = gpu.vram_bytes
 
     spec = adapter.compile(
         plan,
@@ -185,6 +218,20 @@ def validate_one(
         else:
             typed[k] = v
 
+    if res.gpu_memory_utilization is not None:
+        oh = estimate_overheads(
+            profile,
+            max_num_seqs=max_num_seqs,
+            max_num_batched_tokens=min(max_model_len, 8192),
+            parallelism=Parallelism(),
+        )
+        res.predicted_kv_bytes = predict_kv_for_utilization(
+            plan,
+            oh,
+            res.gpu_memory_utilization,
+            gpu.vram_usable_bytes + max(0, gpu.vram_bytes - gpu.vram_usable_bytes),
+        )
+        res.predicted_kv_tokens = res.predicted_kv_bytes // plan.kv_bytes_per_token
     print(f"  booting with {typed}")
     log = boot_vllm(model, typed, timeout)
     facts = adapter.parse_startup_log(log)
@@ -250,17 +297,18 @@ def main() -> int:
             print(f"  FAILED: {r.error}")
 
     print("\n" + "=" * 92)
-    print(f"{'model':34s} {'gmu':>7s} {'KV err':>8s} {'wt err':>8s} {'B/tok err':>10s}  ok")
+    print(f"{'model':30s} {'KVshare':>8s} {'KV err':>8s} {'KV abs':>10s} {'wt err':>8s}  ok")
     print("-" * 92)
     for r in results:
-
-        def f(v: float | None) -> str:
-            return f"{v:.2f}%" if v is not None else "-"
-
+        share = r.kv_share_of_budget
+        abs_mib = (r.kv_abs_error_bytes or 0) / (1024 * 1024)
         print(
-            f"{r.model:34s} {r.gpu_memory_utilization or 0:7.4f} "
-            f"{f(r.kv_bytes_error_pct):>8s} {f(r.weight_error_pct):>8s} "
-            f"{f(r.bytes_per_token_error_pct):>10s}  {'yes' if r.ok else 'NO'}"
+            f"{r.model:30s} "
+            f"{(f'{share:.0%}' if share else '-'):>8s} "
+            f"{_pct(r.kv_bytes_error_pct):>8s} "
+            f"{abs_mib:>8.0f}M "
+            f"{_pct(r.weight_error_pct):>8s}  "
+            f"{'yes' if r.ok else 'NO'}"
         )
 
     scored = [r for r in results if r.ok and r.kv_bytes_error_pct is not None]

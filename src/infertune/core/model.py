@@ -122,6 +122,15 @@ class ModelProfile:
     moe: MoESpec | None = None
     quant: QuantSpec | None = None
     tied_embeddings: bool = False
+    intermediate_size: int | None = None
+    """MLP inner width, per token, after MoE routing.
+
+    Drives prefill activation memory, which is dominated by the MLP intermediate rather
+    than the residual stream: Qwen2.5-7B's intermediate is 5.3x its hidden size, and
+    ignoring it under-estimated activations badly enough to miss the M2 accuracy bar.
+    Falls back to 4x hidden_size when unknown.
+    """
+
     weight_bytes_source: str = "unknown"
     """Provenance, e.g. "safetensors-header" or "estimated". Reported to the user."""
 
@@ -158,6 +167,13 @@ class ModelProfile:
     def attn(self) -> CacheSpec:
         """Backwards-compatible alias for :attr:`cache`."""
         return self.cache
+
+    @property
+    def effective_intermediate_size(self) -> int:
+        """MLP inner width per token, defaulting to the common 4x ratio."""
+        if self.intermediate_size and self.intermediate_size > 0:
+            return self.intermediate_size
+        return 4 * self.hidden_size
 
     @property
     def is_moe(self) -> bool:

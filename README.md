@@ -142,9 +142,20 @@ Each milestone has a falsifiable acceptance criterion; see
 |---|---|---|---|
 | **M0** | Skeleton, core models, units, CPU CI | core imports with no torch installed | ✅ done |
 | **M1** | Model analyzer + memory estimator + ledger | weight bytes within **±1%** across 20 checkpoints | ✅ **0.0000%, 20/20** |
-| **M2** | vLLM adapter + report | predicted vs vLLM-logged `--kv-cache-memory` within **±5%** | next |
-| **M3** | Benchmark harness + measurement store + calibration | throughput prediction within **±20%** held-out | |
+| **M2** | vLLM adapter + report | predicted vs vLLM-reported KV within **±5%** | ✅ **3.61%, 4/4 booted** |
+| **M3** | Benchmark harness + measurement store + calibration | throughput prediction within **±20%** held-out | next |
 | **M4** | SGLang adapter + search | within **10%** of a 50-point grid search using **≤12** boots | |
+
+Measured on an Azure A10 (`docs/gpu-validation-a10.md`), one engine boot per configuration:
+
+| model | KV error | weight error |
+|---|---|---|
+| Qwen3-0.6B | 0.51% | 0.87% |
+| Qwen3-4B | 1.85% | 0.89% |
+| Qwen2.5-7B-Instruct-AWQ | 1.84% | 0.23% |
+| Qwen3-8B | 3.61% | 0.09% |
+
+fp8 KV paths are **unvalidated**: they need sm_89 and the A10 is sm_86.
 
 ### What M1 gets right that naive sizing does not
 

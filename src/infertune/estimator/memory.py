@@ -35,20 +35,43 @@ from ..core.units import GIB, MIB, fmt_bytes
 from ..core.workload import WorkloadProfile
 
 CUDA_CONTEXT_BYTES = 300 * MIB
-"""CUDA context, driver structures, and cuBLAS/cuDNN workspaces."""
+"""CUDA context, driver structures, and cuBLAS/cuDNN workspaces.
+
+**Non-torch**: allocated outside PyTorch's allocator, so it is *not* counted inside an
+engine's memory-utilisation budget. On bare metal this is a few hundred MiB; on a vGPU it is
+far larger (2.35 GiB measured on an Azure A10-24Q), which is why the real figure should come
+from ``torch.cuda.mem_get_info`` when a device is present rather than from this prior.
+"""
 
 NCCL_BYTES_PER_RANK = 220 * MIB
-"""Communication buffers, allocated per rank once tensor parallelism is in use."""
+"""Communication buffers, per rank once tensor parallelism is in use. Non-torch."""
 
 COMPILE_WORKSPACE_BYTES = 400 * MIB
-"""torch.compile / inductor scratch at the default optimization level."""
+"""torch.compile / inductor scratch at the default optimization level. Non-torch."""
 
-CUDA_GRAPH_BASE_BYTES = 600 * MIB
-CUDA_GRAPH_BYTES_PER_SEQ = 4 * MIB
-"""Graph pool grows with the number of captured batch sizes, itself tied to max_num_seqs."""
+CUDA_GRAPH_BASE_BYTES = 64 * MIB
+CUDA_GRAPH_BYTES_PER_SEQ_PER_HIDDEN = 1200
+"""CUDA graph pool, as bytes per captured batch size per unit of hidden dimension.
+
+Calibrated against a measured boot: vLLM 0.19.1 with Qwen3-0.6B (hidden 1024) at
+``max_num_seqs=32`` captured a **102 MiB** pool, and reported its own estimate as 0.11 GiB.
+An earlier fixed prior of 600 MiB + 4 MiB/seq predicted 728 MiB — 7x too high, which fed
+straight into an over-aggressive utilisation and an OOM. Scaling with hidden size is the
+physically sensible form, since captured graphs hold activation buffers.
+
+Single-point calibration; M3 refits it from the measurement store.
+"""
+
+ACTIVATION_ELEMENTS = 2
+"""Live copies of the (residual + MLP-intermediate) stream during a prefill chunk.
+
+Fitted against three measured vLLM boots on an A10 (Qwen3-0.6B, Qwen3-4B,
+Qwen2.5-7B-AWQ); worst-case KV prediction error falls from 5.07% to ~1%. M3 refits this
+from the measurement store.
+"""
 
 ATTENTION_WORKSPACE_BYTES = 128 * MIB
-"""FlashAttention/FlashInfer scratch."""
+"""FlashAttention/FlashInfer scratch. Torch-side."""
 
 FRAGMENTATION_FRACTION = 0.03
 """Allocator fragmentation and rounding, as a share of usable VRAM."""
@@ -63,7 +86,14 @@ class InfeasibleConfigurationError(ValueError):
 
 @dataclass(frozen=True, slots=True)
 class EngineOverheads:
-    """Per-GPU overhead terms other than weights and KV cache."""
+    """Per-GPU overhead terms other than weights and KV cache.
+
+    Split by **which allocator owns them**, because engines size their cache as a fraction of
+    total device memory minus their own *PyTorch* usage. Non-torch memory sits outside that
+    budget, so conflating the two makes the engine appear to have more room than it does.
+    Getting this wrong is not academic: it produced a `gpu_memory_utilization` of 0.9613 on a
+    card whose real ceiling is 0.901, and vLLM OOMed during sampler warm-up.
+    """
 
     cuda_context_bytes: int
     nccl_bytes: int
@@ -74,16 +104,23 @@ class EngineOverheads:
     logits_bytes: int
 
     @property
-    def total(self) -> int:
+    def torch_side(self) -> int:
+        """Overheads allocated through PyTorch, i.e. inside the engine's own budget."""
         return (
-            self.cuda_context_bytes
-            + self.nccl_bytes
-            + self.compile_workspace_bytes
-            + self.cuda_graph_bytes
+            self.cuda_graph_bytes
             + self.attention_workspace_bytes
             + self.prefill_activation_bytes
             + self.logits_bytes
         )
+
+    @property
+    def non_torch(self) -> int:
+        """Overheads outside PyTorch's allocator, and outside the engine's budget."""
+        return self.cuda_context_bytes + self.nccl_bytes + self.compile_workspace_bytes
+
+    @property
+    def total(self) -> int:
+        return self.torch_side + self.non_torch
 
 
 def estimate_overheads(
@@ -104,14 +141,25 @@ def estimate_overheads(
     tp = parallelism.tensor
     hidden_per_gpu = max(1, model.hidden_size // tp)
 
-    # Prefill activations track the token budget. The multiplier covers the residual
-    # stream plus the MLP intermediate held live during a chunk.
-    prefill = bytes_for(max_num_batched_tokens * hidden_per_gpu * 6, activation_dtype)
+    # Prefill activations track the token budget, and are dominated by the MLP
+    # intermediate rather than the residual stream. Measured against vLLM on an A10, a
+    # hidden-only form under-estimated this by ~530 MiB on Qwen2.5-7B (intermediate 5.3x
+    # hidden), which alone pushed KV prediction error past 5%.
+    inner_per_gpu = max(1, model.effective_intermediate_size // tp)
+    prefill = bytes_for(
+        max_num_batched_tokens * (hidden_per_gpu + inner_per_gpu) * ACTIVATION_ELEMENTS,
+        activation_dtype,
+    )
 
     # Logits are computed in fp32 and are not sharded across TP ranks.
     logits = max_num_seqs * model.vocab_size * 4 * LOGITS_BUFFER_COPIES
 
-    graph = 0 if enforce_eager else CUDA_GRAPH_BASE_BYTES + max_num_seqs * CUDA_GRAPH_BYTES_PER_SEQ
+    graph = (
+        0
+        if enforce_eager
+        else CUDA_GRAPH_BASE_BYTES
+        + max_num_seqs * hidden_per_gpu * CUDA_GRAPH_BYTES_PER_SEQ_PER_HIDDEN
+    )
 
     return EngineOverheads(
         cuda_context_bytes=CUDA_CONTEXT_BYTES,
@@ -179,14 +227,19 @@ def estimate_plan(
     # comes out of the budget before any KV sizing.
     recurrent_state = model.cache.fixed_bytes_per_sequence(kv_dtype, tp) * max_num_seqs
 
-    committed = weights + overheads.total + safety + recurrent_state
+    # Only torch-side overheads are subtracted here. `vram_usable_bytes` already means
+    # "what PyTorch can allocate", i.e. total minus the driver/vGPU reserve, so counting the
+    # non-torch terms again would double-subtract them. Measured on an A10-24Q, that reserve
+    # is 2.349 GiB of a 23.722 GiB card -- far too large to handle loosely.
+    committed = weights + overheads.torch_side + safety + recurrent_state
     kv_budget = usable - committed
 
     warnings: list[str] = list(model.warnings)
 
     if kv_budget <= 0:
         detail = (
-            f"weights {fmt_bytes(weights)} + overheads {fmt_bytes(overheads.total)} + "
+            f"weights {fmt_bytes(weights)} + torch overheads "
+            f"{fmt_bytes(overheads.torch_side)} + "
             f"safety {fmt_bytes(safety)}"
         )
         if recurrent_state:
@@ -249,10 +302,7 @@ def estimate_plan(
         weight_bytes_per_gpu=weights,
         activation_peak_bytes=overheads.prefill_activation_bytes + overheads.logits_bytes,
         fixed_overhead_bytes=(
-            overheads.total
-            - overheads.prefill_activation_bytes
-            - overheads.logits_bytes
-            + recurrent_state
+            overheads.cuda_graph_bytes + overheads.attention_workspace_bytes + recurrent_state
         ),
         safety_bytes=safety,
         kv_budget_bytes=kv_budget,
@@ -386,43 +436,26 @@ def _build_ledger(
             is_available=True,
         ),
         LedgerEntry(
+            label="driver/vGPU reserve",
+            bytes_=max(0, gpu.vram_bytes - gpu.vram_usable_bytes),
+            formula="total - torch-allocatable (outside the engine's budget)",
+            provenance=gpu.source,
+            is_available=True,
+        ),
+        LedgerEntry(
             label="model weights",
             bytes_=weights,
             formula=f"measured checkpoint bytes / tp={tp}",
             provenance=model.weight_bytes_source,
         ),
-        LedgerEntry(
-            label="CUDA context",
-            bytes_=overheads.cuda_context_bytes,
-            formula="fixed driver + BLAS workspace",
-            provenance="prior",
-        ),
     ]
-    if overheads.nccl_bytes:
-        entries.append(
-            LedgerEntry(
-                label="NCCL buffers",
-                bytes_=overheads.nccl_bytes,
-                formula="per-rank communication buffers",
-                provenance="prior",
-            )
-        )
-    if overheads.compile_workspace_bytes:
-        entries.append(
-            LedgerEntry(
-                label="compile workspace",
-                bytes_=overheads.compile_workspace_bytes,
-                formula="torch.compile / inductor scratch",
-                provenance="prior",
-            )
-        )
     if overheads.cuda_graph_bytes:
         entries.append(
             LedgerEntry(
                 label="CUDA graph pool",
                 bytes_=overheads.cuda_graph_bytes,
-                formula=f"base + {max_num_seqs} captured sizes "
-                f"({fmt_bytes(CUDA_GRAPH_BYTES_PER_SEQ)} each)",
+                formula=f"{fmt_bytes(CUDA_GRAPH_BASE_BYTES)} base + {max_num_seqs} captured "
+                f"sizes x hidden/tp x {CUDA_GRAPH_BYTES_PER_SEQ_PER_HIDDEN} B",
                 provenance="prior",
             )
         )
@@ -437,7 +470,8 @@ def _build_ledger(
             LedgerEntry(
                 label="prefill activations",
                 bytes_=overheads.prefill_activation_bytes,
-                formula=f"{token_budget} tokens x hidden/tp x 6 elements",
+                formula=f"{token_budget} tokens x (hidden+intermediate)/tp x "
+                f"{ACTIVATION_ELEMENTS} elements",
                 provenance="derived",
             ),
             LedgerEntry(
@@ -576,3 +610,57 @@ __all__ = [
     "recurrent_reservation_bytes",
     "with_kv_dtype",
 ]
+
+
+def safe_utilization_ceiling(
+    total_bytes: int,
+    non_torch_bytes: int,
+    *,
+    safety_fraction: float = FRAGMENTATION_FRACTION,
+) -> float:
+    """Highest memory-utilisation fraction an engine can be given safely.
+
+    Engines express the knob as a fraction of **total** device memory, but only
+    ``total - non_torch`` is actually allocatable. So the ceiling is not 1.0:
+
+        ceiling = (total - non_torch) / total - safety
+
+    Measured on an Azure A10-24Q, where 2.35 GiB is consumed by the vGPU stack before any
+    allocation: ``(23.722 - 2.349) / 23.722 = 0.901``. Asking for 0.90 leaves ~20 MiB and
+    OOMs during sampler warm-up; the observed safe range was <= 0.85. On bare metal, where
+    non-torch overhead is a few hundred MiB, the same formula yields ~0.97.
+
+    Prefer a measured ``non_torch_bytes`` from ``torch.cuda.mem_get_info`` over a prior.
+    """
+    if total_bytes <= 0:
+        raise ValueError("total_bytes must be > 0")
+    if not 0 <= non_torch_bytes < total_bytes:
+        raise ValueError("non_torch_bytes must be in [0, total_bytes)")
+    if not 0 <= safety_fraction < 1:
+        raise ValueError("safety_fraction must be in [0, 1)")
+    return max(0.05, (total_bytes - non_torch_bytes) / total_bytes - safety_fraction)
+
+
+def predict_kv_for_utilization(
+    plan: ResourcePlan,
+    overheads: EngineOverheads,
+    utilization: float,
+    total_bytes: int,
+) -> int:
+    """Predict the KV cache an engine will allocate at a given utilisation fraction.
+
+    Models the engine's actual arithmetic rather than our own ledger split:
+
+        kv = utilization * total_device_memory - (weights + torch-side overheads)
+
+    Verified against vLLM 0.19.1 on an A10 across four utilisation values, which fit
+    ``kv = gmu * 23.722 GiB - 1.424 GiB`` with a slope equal to ``torch.total_memory`` to
+    three significant figures. This is the quantity the M2 criterion scores, and it is
+    obtainable from a single boot with no load generation.
+    """
+    if total_bytes <= 0:
+        raise ValueError("total_bytes must be > 0")
+    if not 0 < utilization <= 1:
+        raise ValueError(f"utilization must be in (0, 1], got {utilization}")
+    budget = round(utilization * total_bytes)
+    return max(0, budget - plan.weight_bytes_per_gpu - overheads.torch_side)

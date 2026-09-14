@@ -210,6 +210,19 @@ class TestCompile:
         spec = adapter.compile(plan, "m", total_vram_bytes=A10_TOTAL_BYTES)
         assert ("--kv-cache-dtype", "fp8_e4m3") in spec.args
 
+    def test_16bit_kv_emits_no_dtype_flag(self, adapter: VLLMAdapter) -> None:
+        """Regression guard for a bug only a real engine boot revealed.
+
+        vLLM 0.19.1 lists "bfloat16" among kv_cache_dtype's choices, so a choices-driven
+        mapping happily emits ``--kv-cache-dtype bfloat16`` — and engine-core initialisation
+        then fails. Omitting the flag lets vLLM derive KV dtype from the model, which works.
+        Appearing in ``choices`` does not mean being supported.
+        """
+        for dtype in (DType.BF16, DType.FP16):
+            plan = make_plan(dtypes=DtypePlan(weights=dtype, activations=dtype, kv_cache=dtype))
+            spec = adapter.compile(plan, "m", total_vram_bytes=A10_TOTAL_BYTES)
+            assert "--kv-cache-dtype" not in [f for f, _ in spec.args], dtype
+
 
 class TestInversion:
     def test_inversion_excludes_the_safety_margin(self, adapter: VLLMAdapter) -> None:

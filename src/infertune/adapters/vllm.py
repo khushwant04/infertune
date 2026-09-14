@@ -50,11 +50,17 @@ ROLE_DESTS: dict[ParamRole, tuple[str, ...]] = {
 }
 
 # vLLM spells fp8 KV several ways depending on version; prefer the most explicit available.
+#
+# For 16-bit KV, prefer "auto" so vLLM derives the cache dtype from the model. That is not
+# cosmetic: vLLM 0.19.1 *lists* "bfloat16" among kv_cache_dtype's choices, but passing it
+# explicitly makes engine-core initialisation fail, while omitting the flag works. Only
+# request an explicit dtype where it actually changes behaviour, i.e. fp8.
 KV_DTYPE_PREFERENCE: dict[DType, tuple[str, ...]] = {
     DType.FP8_E4M3: ("fp8_e4m3", "fp8"),
     DType.FP8_E5M2: ("fp8_e5m2", "fp8"),
-    DType.BF16: ("bfloat16", "auto"),
-    DType.FP16: ("float16", "auto"),
+    DType.BF16: ("auto",),
+    DType.FP16: ("auto",),
+    DType.FP32: ("auto",),
 }
 
 MAX_GPU_MEMORY_UTILIZATION = 0.98
@@ -192,7 +198,10 @@ class VLLMAdapter(FrameworkAdapter):
         )
 
     def invert_memory_fraction(
-        self, plan: ResourcePlan, total_vram_bytes: int
+        self,
+        plan: ResourcePlan,
+        total_vram_bytes: int,
+        max_utilization: float = MAX_GPU_MEMORY_UTILIZATION,
     ) -> tuple[float, Diagnostic]:
         """Solve for the ``--gpu-memory-utilization`` that yields the plan's KV budget.
 
@@ -217,7 +226,8 @@ class VLLMAdapter(FrameworkAdapter):
             + plan.fixed_overhead_bytes
         )
         raw = needed / total_vram_bytes
-        gmu = min(MAX_GPU_MEMORY_UTILIZATION, max(0.05, round(raw, 4)))
+        ceiling = min(MAX_GPU_MEMORY_UTILIZATION, max_utilization)
+        gmu = min(ceiling, max(0.05, round(raw, 4)))
         note = Diagnostic(
             Severity.INFO,
             f"vLLM {self._schema.version} has no --kv-cache-memory flag, so the "
@@ -227,11 +237,11 @@ class VLLMAdapter(FrameworkAdapter):
             "recalibrate if they diverge.",
             ParamRole.MEMORY_FRACTION,
         )
-        if raw > MAX_GPU_MEMORY_UTILIZATION:
+        if raw > ceiling:
             note = Diagnostic(
                 Severity.WARNING,
-                f"required utilization {raw:.4f} exceeds the safe ceiling "
-                f"{MAX_GPU_MEMORY_UTILIZATION}; clamped. The KV budget will be smaller than "
+                f"required utilization {raw:.4f} exceeds this GPU's safe ceiling "
+                f"{ceiling:.4f}; clamped. The KV budget will be smaller than "
                 "planned. Reduce max_num_seqs or max_model_len, or shard further.",
                 ParamRole.MEMORY_FRACTION,
             )
@@ -246,6 +256,7 @@ class VLLMAdapter(FrameworkAdapter):
         max_model_len: int | None = None,
         max_num_batched_tokens: int | None = None,
         total_vram_bytes: int | None = None,
+        max_utilization: float = MAX_GPU_MEMORY_UTILIZATION,
         enforce_eager: bool = False,
         **_: Any,
     ) -> LaunchSpec:
@@ -283,7 +294,7 @@ class VLLMAdapter(FrameworkAdapter):
                     )
                 )
             else:
-                gmu, note = self.invert_memory_fraction(plan, total_vram_bytes)
+                gmu, note = self.invert_memory_fraction(plan, total_vram_bytes, max_utilization)
                 emit(ParamRole.MEMORY_FRACTION, f"{gmu:.4f}")
                 diags.append(note)
 

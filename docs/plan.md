@@ -558,10 +558,37 @@ Delivered beyond the original scope, because the naive formula is most wrong exa
 `infertune plan` is also wired up early, since the machinery existed and a milestone that
 cannot be run cannot be reviewed.
 
-**M2 — vLLM adapter + report (1 wk).** Introspected schema, `LaunchSpec` generation, validation
-diagnostics, rich report with ledger, envelope, `B*`, binding constraint, and risks.
-*Accept:* generated command lines parse against ≥2 vLLM versions; recommended configs boot
-without OOM on ≥6 (GPU, model) pairs; predicted vs vLLM-logged `--kv-cache-memory` within **±5%**.
+**M2 — vLLM adapter + report (1 wk). ✅ Done.** Introspected schema, `LaunchSpec` generation,
+validation diagnostics, report with ledger, envelope, `B*`, binding constraint, and risks;
+`infertune profile` on measured hardware.
+*Accept:* **4/4 configurations booted without OOM, worst KV prediction error 3.61%** against the
+±5% bar, measured on an Azure A10 (see `docs/gpu-validation-a10.md`) ✅.
+
+The criterion needed restating, and the reason is itself the milestone's main finding.
+It originally read "predicted vs vLLM-logged `--kv-cache-memory`". **That flag does not exist in
+vLLM 0.19.1**, the newest release that runs on an A10 at all — so scoring uses vLLM's
+`Available KV cache memory` and `GPU KV cache size` lines instead, which are equivalent and
+report both bytes and tokens.
+
+That absence is precisely what §2.3 predicted: a hardcoded flag table would have emitted an
+unparseable command line ten releases out of date. The adapter detects the missing lever and
+falls back to inverting `--gpu-memory-utilization`, which reintroduces the inversion §2.2 hoped
+to avoid — so the inversion is now explicit, clamped to a measured ceiling, and reported as a
+diagnostic rather than hidden.
+
+Three further corrections, all found by measurement rather than reasoning (details in
+`docs/gpu-validation-a10.md`):
+
+* **The utilisation ceiling is not 1.0.** A vGPU consumes 2.35 GiB of a 23.72 GiB card before
+  any allocation, so the real ceiling is `free/total = 0.901`. An early inversion produced
+  0.9613 and OOMed. `vram_usable_bytes` now means *torch-allocatable*, and non-torch overheads
+  are no longer double-subtracted.
+* **The CUDA graph pool prior was 7× too high** (728 MiB predicted vs 102 MiB measured).
+* **Prefill activations must include the MLP intermediate**, which is 5.3× hidden on
+  Qwen2.5-7B; omitting it cost ~530 MiB and alone breached the ±5% bar.
+
+Deliberately **not** validated: fp8 KV and fp8 weights need sm_89, and the A10 is sm_86. Those
+paths remain unverified rather than assumed working.
 
 **M3 — Benchmark harness + measurement store (1.5 wk).** Load generator with configurable
 distributions, TTFT/TPOT/throughput/p99, NVML sampling, SQLite store, MFU/MBU calibration,

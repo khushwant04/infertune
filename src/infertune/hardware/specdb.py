@@ -13,6 +13,7 @@ to the card.
 from __future__ import annotations
 
 import json
+import re
 from functools import lru_cache
 from importlib import resources
 from typing import Any
@@ -42,8 +43,19 @@ def available() -> tuple[str, ...]:
     return tuple(sorted(_load()))
 
 
+_VGPU_PROFILE_SUFFIX = re.compile(r"-\d+[qcab]$")
+"""vGPU profile suffix, e.g. the ``-24Q`` in ``NVIDIA A10-24Q``.
+
+NVML reports the *profile* name on virtualised GPUs, not the board name, so a live A10 on
+Azure appears as ``NVIDIA A10-24Q`` and would otherwise miss the ``a10`` entry entirely --
+falling back to coarse FLOPS priors and a wrong critical batch size.
+"""
+
+
 def _normalise(key: str) -> str:
-    return key.strip().lower().replace("_", "-").replace(" ", "-")
+    cleaned = key.strip().lower().replace("_", "-").replace(" ", "-")
+    cleaned = cleaned.removeprefix("nvidia-")
+    return _VGPU_PROFILE_SUFFIX.sub("", cleaned)
 
 
 def _resolve_key(key: str) -> str:
