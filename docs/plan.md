@@ -590,11 +590,35 @@ Three further corrections, all found by measurement rather than reasoning (detai
 Deliberately **not** validated: fp8 KV and fp8 weights need sm_89, and the A10 is sm_86. Those
 paths remain unverified rather than assumed working.
 
-**M3 — Benchmark harness + measurement store (1.5 wk).** Load generator with configurable
-distributions, TTFT/TPOT/throughput/p99, NVML sampling, SQLite store, MFU/MBU calibration,
-inner-loop concurrency sweep.
-*Accept:* one boot produces a full latency-throughput curve; post-calibration throughput
-prediction within **±20%** on held-out configs.
+**M3 — Benchmark harness + measurement store (1.5 wk). 🟡 Implemented, acceptance pending
+hardware.** Load generator with configurable distributions, TTFT/TPOT/throughput/p99, SQLite
+store, roofline model, MFU/MBU calibration, inner-loop concurrency sweep, `infertune benchmark`.
+
+*Accept:* one boot produces a full latency-throughput curve ✅ (verified against a mock engine);
+post-calibration throughput prediction within **±20%** on held-out configs — **not yet
+measured**, because it requires sustained GPU load rather than the boot-only evidence M2 used.
+
+What *is* verified locally, without a GPU:
+
+* **The calibration arithmetic round-trips.** Synthesising latencies from known coefficients
+  and fitting them back recovers `mbu` to within 5% and `mfu` to within 10%. If the algebra
+  were wrong, this would fail on a laptop rather than after renting a GPU.
+* **The load generator measures what it claims.** A stdlib mock engine emits SSE chunks with
+  *controlled* delays (80 ms to first token, 20 ms between), and the measured TTFT/TPOT match.
+  Timing code that is only ever exercised against a real engine cannot be checked this way.
+* **The sweep stops early for the right reasons** — SLA breach, throughput saturation, or
+  excessive errors — since latency is monotone in concurrency.
+* **A single outlier cannot move a fit.** Coefficients are aggregated by median, so one evicted
+  spot instance or cold cache is ignored rather than enshrined.
+* **Measurements are keyed by engine version.** vLLM changes memory accounting and scheduling
+  defaults between releases, so pooling versions would quietly corrupt the calibration set.
+
+Two modelling notes worth recording, both of which change reported numbers:
+
+* **TPOT excludes the first token.** Including it lets prefill leak into a decode metric, making
+  long prompts look like a decode regression.
+* **Output throughput excludes prompt tokens.** Counting both inflates the figure by the
+  input/output ratio, which is the usual reason published throughput numbers are incomparable.
 
 **M4 — SGLang adapter + search (2 wk).** Second adapter proves the abstraction; analytic prune;
 outer/inner loops; Pareto selection; then BO over survivors.
