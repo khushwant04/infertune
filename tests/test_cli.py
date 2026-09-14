@@ -82,7 +82,6 @@ def test_unimplemented_commands_exit_nonzero_with_a_milestone() -> None:
     """Never print plausible numbers for unbuilt features."""
     for command, milestone in (
         ("profile", "M2"),
-        ("plan", "M2"),
         ("benchmark", "M3"),
         ("tune", "M4"),
     ):
@@ -90,3 +89,24 @@ def test_unimplemented_commands_exit_nonzero_with_a_milestone() -> None:
         assert result.exit_code == 2, command
         assert milestone in result.stdout, command
         assert "docs/plan.md" in result.stdout, command
+
+
+def test_gpus_command_lists_the_spec_database() -> None:
+    result = runner.invoke(app, ["gpus"])
+    assert result.exit_code == 0
+    assert "h100-sxm" in result.stdout
+    assert "rtx-4090" in result.stdout
+
+
+def test_plan_command_requires_a_known_gpu() -> None:
+    result = runner.invoke(app, ["plan", "--model", "x/y", "--gpu", "gtx-750-ti"])
+    assert result.exit_code == 1
+    assert "unknown GPU" in result.stdout
+
+
+def test_plan_command_is_registered_with_expected_options() -> None:
+    """The plan command needs no GPU, so it must be reachable in any environment."""
+    result = runner.invoke(app, ["plan", "--help"])
+    assert result.exit_code == 0
+    for option in ("--model", "--gpu", "--tp", "--max-num-seqs", "--kv-dtype"):
+        assert option in result.stdout

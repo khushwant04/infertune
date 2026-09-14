@@ -4,8 +4,16 @@
 workload, it determines a safe and near-optimal deployment configuration — and shows the memory
 arithmetic that justifies it.
 
-> **Status: design stage.** No code yet. The full architecture and implementation plan lives in
-> [`docs/plan.md`](docs/plan.md). Read that first.
+> **Status: M1 complete.** The analyzer and memory estimator work today — `infertune plan`
+> produces a full memory ledger for any Hub model on any GPU in the spec database, with no GPU
+> and no model download required. Engine adapters, benchmarking and search (M2–M4) are not built
+> yet. Architecture and implementation plan: [`docs/plan.md`](docs/plan.md).
+
+```bash
+pip install -e .
+infertune plan --model deepseek-ai/DeepSeek-V3 --gpu h200-sxm --gpus 8 --tp 8 \
+               --max-num-seqs 64 --max-model-len 32768
+```
 
 ---
 
@@ -130,13 +138,26 @@ infertune tune      --model ... --sla-ttft-p99 500ms --maximize throughput
 Each milestone has a falsifiable acceptance criterion; see
 [`docs/plan.md §9`](docs/plan.md).
 
-| | scope | key acceptance criterion |
+| | scope | key acceptance criterion | status |
+|---|---|---|---|
+| **M0** | Skeleton, core models, units, CPU CI | core imports with no torch installed | ✅ done |
+| **M1** | Model analyzer + memory estimator + ledger | weight bytes within **±1%** across 20 checkpoints | ✅ **0.0000%, 20/20** |
+| **M2** | vLLM adapter + report | predicted vs vLLM-logged `--kv-cache-memory` within **±5%** | next |
+| **M3** | Benchmark harness + measurement store + calibration | throughput prediction within **±20%** held-out | |
+| **M4** | SGLang adapter + search | within **10%** of a 50-point grid search using **≤12** boots | |
+
+### What M1 gets right that naive sizing does not
+
+Each factor is asserted by a test, against a released checkpoint's own config:
+
+| architecture | example | naive error |
 |---|---|---|
-| **M0** | Skeleton, core models, units, CPU CI | core imports with no torch installed |
-| **M1** | Model analyzer + memory estimator + ledger | weight bytes within **±1%** across 20 checkpoints |
-| **M2** | vLLM adapter + report | predicted vs vLLM-logged `--kv-cache-memory` within **±5%** |
-| **M3** | Benchmark harness + measurement store + calibration | throughput prediction within **±20%** held-out |
-| **M4** | SGLang adapter + search | within **10%** of a 50-point grid search using **≤12** boots |
+| MLA latent cache | DeepSeek-V3 | **56.9× overestimate** |
+| Attention/Mamba hybrid | Nemotron-H-8B | **13× overestimate** (4 of 52 layers cache KV) |
+| Interleaved local/global | gpt-oss-20b | **~2× at 8K** (12 of 24 layers capped at 128 tokens) |
+| Tied embeddings shipped twice | Qwen3-0.6B | **26.1% overestimate** |
+| `metadata.total_size` for fp8 | DeepSeek-V3 | **1.99× overestimate** |
+| Per-request p95 composed into aggregate | any | **~1.8× overestimate** |
 
 Deliberately deferred: multi-node, disaggregated prefill/decode, speculative decoding, LoRA, MIG,
 non-NVIDIA hardware.

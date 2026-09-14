@@ -159,10 +159,153 @@ def profile() -> None:
     _unimplemented("profile", "M2")
 
 
+@app.command("gpus")
+def list_gpus() -> None:
+    """List GPUs known to the specification database."""
+    from .hardware import specdb
+
+    table = Table(box=None)
+    table.add_column("key")
+    table.add_column("name")
+    table.add_column("VRAM", justify="right")
+    table.add_column("bandwidth", justify="right")
+    table.add_column("B* (bf16)", justify="right")
+    for key in specdb.available():
+        gpu = specdb.load(key)
+        try:
+            critical = f"{gpu.critical_batch_size(DType.BF16):.0f}"
+        except ValueError:
+            critical = "-"
+        table.add_row(
+            key,
+            gpu.name,
+            fmt_bytes(gpu.vram_bytes),
+            f"{gpu.mem_bandwidth_bytes_s / 1e9:.0f} GB/s",
+            critical,
+        )
+    console.print(table)
+
+
 @app.command("plan")
-def plan_cmd() -> None:
-    """Plan a configuration for hardware you do not have yet."""
-    _unimplemented("plan", "M2")
+def plan_cmd(
+    model: str = typer.Option(..., "--model", "-m", help="Hugging Face repository id."),
+    gpu_key: str = typer.Option(..., "--gpu", "-g", help="GPU key, e.g. 'h100-sxm'."),
+    count: int = typer.Option(1, "--gpus", help="Number of GPUs available."),
+    tp: int = typer.Option(1, "--tp", help="Tensor parallel size."),
+    max_num_seqs: int = typer.Option(32, "--max-num-seqs", help="Concurrent request cap."),
+    max_model_len: int = typer.Option(8192, "--max-model-len", help="Context length."),
+    input_median: float = typer.Option(1024, "--input-median", help="Median prompt tokens."),
+    input_p95: float = typer.Option(2048, "--input-p95", help="p95 prompt tokens."),
+    output_median: float = typer.Option(256, "--output-median", help="Median output tokens."),
+    output_p95: float = typer.Option(512, "--output-p95", help="p95 output tokens."),
+    kv_dtype: str | None = typer.Option(None, "--kv-dtype", help="KV cache dtype override."),
+    eager: bool = typer.Option(False, "--eager", help="Assume --enforce-eager (no graphs)."),
+) -> None:
+    """Plan a configuration for hardware you do not have in hand.
+
+    Needs no GPU: hardware facts come from the specification database, and model facts from
+    checkpoint metadata read over HTTP range requests without downloading weights.
+    """
+    from .core.plan import Parallelism
+    from .estimator import InfeasibleConfigurationError, estimate_plan, with_kv_dtype
+    from .hardware import specdb
+    from .models import ModelMetadataError, analyze
+
+    try:
+        gpu = specdb.load(gpu_key, count=count)
+    except (specdb.UnknownGPUError, RuntimeError) as exc:
+        console.print(f"[red]error:[/red] {exc}")
+        raise typer.Exit(code=1) from None
+
+    with console.status(f"reading metadata for {model}..."):
+        try:
+            profile_ = analyze(model)
+        except ModelMetadataError as exc:
+            console.print(f"[red]error:[/red] {exc}")
+            raise typer.Exit(code=1) from None
+
+    workload = WorkloadProfile(
+        input_tokens=LogNormal.from_median_p95(input_median, input_p95),
+        output_tokens=LogNormal.from_median_p95(output_median, output_p95),
+        target_concurrency=max_num_seqs,
+    )
+    try:
+        resolved_kv = DType.parse(kv_dtype) if kv_dtype else None
+        plan = estimate_plan(
+            profile_,
+            gpu,
+            workload,
+            max_num_seqs=max_num_seqs,
+            max_model_len=max_model_len,
+            parallelism=Parallelism(tensor=tp),
+            kv_dtype=resolved_kv,
+            enforce_eager=eager,
+        )
+    except InfeasibleConfigurationError as exc:
+        console.print(f"[red]infeasible:[/red] {exc}")
+        raise typer.Exit(code=1) from None
+    except ValueError as exc:
+        console.print(f"[red]error:[/red] {exc}")
+        raise typer.Exit(code=1) from None
+
+    console.print()
+    console.print(f"[bold]{profile_.model_id}[/bold] on {gpu.count}x {gpu.name}  (tp={tp})")
+    console.print(
+        f"[dim]{type(profile_.cache).__name__}, "
+        f"{profile_.cache.n_cache_layers}/{profile_.n_layers} layers cache state; "
+        f"weights measured via {profile_.weight_bytes_source}[/dim]"
+    )
+    console.print()
+
+    ledger = Table(box=None, pad_edge=False)
+    ledger.add_column("term")
+    ledger.add_column("bytes", justify="right")
+    ledger.add_column("formula", style="dim")
+    for entry in plan.ledger:
+        style = "cyan" if entry.is_available else None
+        label = entry.label if not entry.is_available else f"[{style}]{entry.label}[/{style}]"
+        ledger.add_row(label, fmt_bytes(entry.bytes_), entry.formula)
+    console.print(ledger)
+    console.print()
+
+    summary = Table(show_header=False, box=None, pad_edge=False)
+    summary.add_row(
+        "KV capacity",
+        f"[bold]{fmt_tokens(plan.kv_budget_tokens)}[/bold] tokens "
+        f"({fmt_bytes(plan.kv_bytes_per_token)}/token, {plan.dtypes.kv_cache})",
+    )
+    if plan.headroom_concurrency is not None:
+        summary.add_row(
+            "concurrency headroom", f"{plan.headroom_concurrency} (requested {max_num_seqs})"
+        )
+    if plan.critical_batch_size is not None:
+        summary.add_row("critical batch size B*", f"{plan.critical_batch_size:.0f}")
+    summary.add_row(
+        "binding constraint",
+        f"[bold yellow]{plan.binding_constraint.value}[/bold yellow] — "
+        f"{plan.binding_constraint.explain()}",
+    )
+    if plan.cache_limited is not None:
+        verdict = (
+            "cache is the wall: a smaller KV dtype or more GPUs would help; a faster GPU would not"
+            if plan.cache_limited
+            else "the GPU saturates before the cache does: fp8 KV would not raise throughput"
+        )
+        summary.add_row("verdict", verdict)
+    console.print(summary)
+
+    if plan.dtypes.kv_cache is not DType.FP8_E4M3 and gpu.supports(DType.FP8_E4M3):
+        fp8 = with_kv_dtype(plan, profile_.cache, DType.FP8_E4M3)
+        console.print()
+        console.print(
+            f"[dim]with --kv-cache-dtype fp8: {fmt_tokens(fp8.kv_budget_tokens)} tokens "
+            f"({fp8.kv_budget_tokens / max(1, plan.kv_budget_tokens):.2f}x)[/dim]"
+        )
+
+    if plan.warnings:
+        console.print()
+        for warning in plan.warnings:
+            console.print(f"[yellow]![/yellow] {warning}")
 
 
 @app.command()
