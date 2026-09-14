@@ -76,7 +76,7 @@ def test_mha_costs_more_than_gqa_at_equal_size() -> None:
 
 
 def test_token_capacity_from_a_budget() -> None:
-    """3.77 GiB at 128 KiB/token is ~30,900 tokens — the README's worked example."""
+    """3.77 GiB at 128 KiB/token is ~30,900 tokens — the worked example in `docs/plan.md`."""
     per_token = LLAMA_31_8B.kv_bytes_per_token(DType.BF16)
     assert gib(3.77) // per_token == pytest.approx(30_900, abs=50)
 

@@ -68,9 +68,9 @@ class Result:
     error: str = ""
 
     def _pct(self, pred: int | float | None, act: int | float | None) -> float | None:
-        if pred is None or act in (None, 0):
+        if pred is None or act is None or act == 0:
             return None
-        return abs(pred - act) / act * 100.0  # type: ignore[operator]
+        return abs(pred - act) / act * 100.0
 
     @property
     def kv_bytes_error_pct(self) -> float | None:
