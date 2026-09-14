@@ -1,0 +1,164 @@
+{
+  "_comment": [
+    "GPU specifications for the capacity-planning path, used when no device is present.",
+    "vram_gib is BINARY, matching what NVML reports: a '24 GB' RTX 4090 reports 24564 MiB",
+    "(23.99 GiB), and an '80 GB' H100 reports 81559 MiB (79.65 GiB, ~85.5 decimal GB).",
+    "Reading these as decimal GB understates capacity by 7.4%, which comes entirely out of",
+    "the KV budget. See docs/plan.md section 2.6.",
+    "dense_flops are DENSE (non-sparse) peak figures. Vendor marketing often quotes 2x these",
+    "with structured sparsity, which is not achievable for LLM inference.",
+    "usable_fraction is the share left after driver/display reservation."
+  ],
+  "gpus": {
+    "rtx-4090": {
+      "name": "NVIDIA RTX 4090",
+      "vram_gib": 23.988,
+      "usable_fraction": 0.984,
+      "compute_capability": [8, 9],
+      "sm_count": 128,
+      "mem_bandwidth_gb_s": 1008,
+      "dense_flops": { "fp32": 82.6e12, "fp16": 82.6e12, "bf16": 82.6e12, "fp8_e4m3": 165.2e12 },
+      "interconnect": "pcie-gen4-x16"
+    },
+    "rtx-5090": {
+      "name": "NVIDIA RTX 5090",
+      "vram_gib": 31.5,
+      "usable_fraction": 0.984,
+      "compute_capability": [12, 0],
+      "sm_count": 170,
+      "mem_bandwidth_gb_s": 1792,
+      "dense_flops": { "fp16": 104.8e12, "bf16": 104.8e12, "fp8_e4m3": 209.5e12, "nvfp4": 419e12 },
+      "interconnect": "pcie-gen5-x16"
+    },
+    "rtx-a6000": {
+      "name": "NVIDIA RTX A6000",
+      "vram_gib": 47.99,
+      "usable_fraction": 0.985,
+      "compute_capability": [8, 6],
+      "sm_count": 84,
+      "mem_bandwidth_gb_s": 768,
+      "dense_flops": { "fp32": 38.7e12, "fp16": 38.7e12, "bf16": 38.7e12 },
+      "interconnect": "pcie-gen4-x16"
+    },
+    "l4": {
+      "name": "NVIDIA L4",
+      "vram_gib": 22.49,
+      "usable_fraction": 0.985,
+      "compute_capability": [8, 9],
+      "sm_count": 58,
+      "mem_bandwidth_gb_s": 300,
+      "dense_flops": { "fp16": 30.3e12, "bf16": 30.3e12, "fp8_e4m3": 60.6e12 },
+      "interconnect": "pcie-gen4-x16"
+    },
+    "l40s": {
+      "name": "NVIDIA L40S",
+      "vram_gib": 44.99,
+      "usable_fraction": 0.985,
+      "compute_capability": [8, 9],
+      "sm_count": 142,
+      "mem_bandwidth_gb_s": 864,
+      "dense_flops": { "fp16": 91.6e12, "bf16": 91.6e12, "fp8_e4m3": 183.2e12 },
+      "interconnect": "pcie-gen4-x16"
+    },
+    "a100-40gb": {
+      "name": "NVIDIA A100 40GB",
+      "vram_gib": 39.5,
+      "usable_fraction": 0.985,
+      "compute_capability": [8, 0],
+      "sm_count": 108,
+      "mem_bandwidth_gb_s": 1555,
+      "dense_flops": { "fp32": 19.5e12, "fp16": 312e12, "bf16": 312e12 },
+      "interconnect": "nvlink-3"
+    },
+    "a100-80gb": {
+      "name": "NVIDIA A100 80GB",
+      "vram_gib": 79.15,
+      "usable_fraction": 0.985,
+      "compute_capability": [8, 0],
+      "sm_count": 108,
+      "mem_bandwidth_gb_s": 2039,
+      "dense_flops": { "fp32": 19.5e12, "fp16": 312e12, "bf16": 312e12 },
+      "interconnect": "nvlink-3"
+    },
+    "h100-sxm": {
+      "name": "NVIDIA H100 SXM",
+      "vram_gib": 79.65,
+      "usable_fraction": 0.98,
+      "compute_capability": [9, 0],
+      "sm_count": 132,
+      "mem_bandwidth_gb_s": 3350,
+      "dense_flops": { "fp32": 67e12, "fp16": 989.5e12, "bf16": 989.5e12, "fp8_e4m3": 1979e12 },
+      "interconnect": "nvlink-4"
+    },
+    "h100-pcie": {
+      "name": "NVIDIA H100 PCIe",
+      "vram_gib": 79.65,
+      "usable_fraction": 0.98,
+      "compute_capability": [9, 0],
+      "sm_count": 114,
+      "mem_bandwidth_gb_s": 2000,
+      "dense_flops": { "fp32": 51e12, "fp16": 756e12, "bf16": 756e12, "fp8_e4m3": 1513e12 },
+      "interconnect": "pcie-gen5-x16"
+    },
+    "h200-sxm": {
+      "name": "NVIDIA H200 SXM",
+      "vram_gib": 139.72,
+      "usable_fraction": 0.98,
+      "compute_capability": [9, 0],
+      "sm_count": 132,
+      "mem_bandwidth_gb_s": 4800,
+      "dense_flops": { "fp32": 67e12, "fp16": 989.5e12, "bf16": 989.5e12, "fp8_e4m3": 1979e12 },
+      "interconnect": "nvlink-4"
+    },
+    "b200": {
+      "name": "NVIDIA B200",
+      "vram_gib": 180.0,
+      "usable_fraction": 0.98,
+      "compute_capability": [10, 0],
+      "sm_count": 148,
+      "mem_bandwidth_gb_s": 8000,
+      "dense_flops": { "bf16": 2250e12, "fp8_e4m3": 4500e12, "nvfp4": 9000e12 },
+      "interconnect": "nvlink-5"
+    },
+    "a10g": {
+      "name": "NVIDIA A10G",
+      "vram_gib": 22.49,
+      "usable_fraction": 0.985,
+      "compute_capability": [8, 6],
+      "sm_count": 80,
+      "mem_bandwidth_gb_s": 600,
+      "dense_flops": { "fp32": 31.5e12, "fp16": 31.5e12, "bf16": 31.5e12 },
+      "interconnect": "pcie-gen4-x16"
+    },
+    "v100-32gb": {
+      "name": "NVIDIA V100 32GB",
+      "vram_gib": 31.75,
+      "usable_fraction": 0.985,
+      "compute_capability": [7, 0],
+      "sm_count": 80,
+      "mem_bandwidth_gb_s": 900,
+      "dense_flops": { "fp32": 15.7e12, "fp16": 125e12 },
+      "interconnect": "nvlink-3"
+    },
+    "t4": {
+      "name": "NVIDIA T4",
+      "vram_gib": 14.76,
+      "usable_fraction": 0.985,
+      "compute_capability": [7, 5],
+      "sm_count": 40,
+      "mem_bandwidth_gb_s": 320,
+      "dense_flops": { "fp32": 8.1e12, "fp16": 65e12 },
+      "interconnect": "pcie-gen3-x16"
+    },
+    "rtx-3090": {
+      "name": "NVIDIA RTX 3090",
+      "vram_gib": 23.7,
+      "usable_fraction": 0.984,
+      "compute_capability": [8, 6],
+      "sm_count": 82,
+      "mem_bandwidth_gb_s": 936,
+      "dense_flops": { "fp32": 35.6e12, "fp16": 35.6e12, "bf16": 35.6e12 },
+      "interconnect": "pcie-gen4-x16"
+    }
+  }
+}

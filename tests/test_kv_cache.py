@@ -108,14 +108,16 @@ def test_sliding_window_per_token_cost_matches_gqa() -> None:
     assert swa.kv_bytes_per_token(DType.BF16) == LLAMA_31_8B.kv_bytes_per_token(DType.BF16)
 
 
-@pytest.mark.parametrize(
-    "kind", [AttentionKind.MLA, AttentionKind.HYBRID, AttentionKind.RECURRENT_HYBRID]
-)
-def test_unmodelled_architectures_refuse_rather_than_guess(kind: AttentionKind) -> None:
-    """Refusing beats a confidently wrong number that OOMs in production."""
-    spec = AttentionSpec(kind=kind, n_kv_heads=8, head_dim=128, n_kv_layers=32)
-    with pytest.raises(UnsupportedArchitectureError, match="not implemented yet"):
-        spec.kv_bytes_per_token(DType.BF16)
+@pytest.mark.parametrize("kind", [AttentionKind.MLA, AttentionKind.HYBRID, AttentionKind.RECURRENT])
+def test_attention_spec_rejects_architectures_it_cannot_model(kind: AttentionKind) -> None:
+    """AttentionSpec refuses kinds that need a different cache model.
+
+    These are now implemented (MLASpec, RecurrentSpec, LayeredCacheSpec), so the error
+    points at the right type instead of merely declining. Silently applying the GQA formula
+    to MLA would overestimate by ~57x.
+    """
+    with pytest.raises(UnsupportedArchitectureError, match=r"MLASpec|RecurrentSpec|Layered"):
+        AttentionSpec(kind=kind, n_kv_heads=8, head_dim=128, n_kv_layers=32)
 
 
 def test_unsupported_architecture_error_is_a_notimplementederror() -> None:

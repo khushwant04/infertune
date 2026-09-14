@@ -126,6 +126,19 @@ class ResourcePlan:
     binding_constraint: BindingConstraint
     ledger: tuple[LedgerEntry, ...] = field(default_factory=tuple)
     warnings: tuple[str, ...] = field(default_factory=tuple)
+    headroom_concurrency: int | None = None
+    """Largest concurrency whose p95 working set fits this budget.
+
+    The actionable form of the binding constraint: it answers "how far can I raise
+    concurrency?" rather than merely asserting that the cache is the limit.
+    """
+
+    critical_batch_size: float | None = None
+    """Concurrency at which decode stops being bandwidth-bound.
+
+    Compared against :attr:`headroom_concurrency` this says whether the cache or the GPU is
+    the wall — and therefore whether fp8 KV would buy anything.
+    """
 
     def __post_init__(self) -> None:
         for name in (
@@ -145,6 +158,18 @@ class ResourcePlan:
     def kv_budget_tokens(self) -> int:
         """KV capacity in tokens — the number the scheduler actually lives within."""
         return self.kv_budget_bytes // self.kv_bytes_per_token
+
+    @property
+    def cache_limited(self) -> bool | None:
+        """Whether the cache runs out before the GPU saturates.
+
+        ``True`` means KV capacity, not compute, is the wall — so a smaller KV dtype or
+        more GPUs would raise throughput, while a faster GPU would not. ``None`` when either
+        figure is unavailable.
+        """
+        if self.headroom_concurrency is None or self.critical_batch_size is None:
+            return None
+        return self.headroom_concurrency < self.critical_batch_size
 
     @property
     def total_allocated_bytes(self) -> int:

@@ -6,6 +6,8 @@ important behaviour is that unimplemented commands *fail* rather than emit numbe
 
 from __future__ import annotations
 
+import inspect
+
 from typer.testing import CliRunner
 
 from infertune.cli import app
@@ -82,7 +84,6 @@ def test_unimplemented_commands_exit_nonzero_with_a_milestone() -> None:
     """Never print plausible numbers for unbuilt features."""
     for command, milestone in (
         ("profile", "M2"),
-        ("plan", "M2"),
         ("benchmark", "M3"),
         ("tune", "M4"),
     ):
@@ -90,3 +91,56 @@ def test_unimplemented_commands_exit_nonzero_with_a_milestone() -> None:
         assert result.exit_code == 2, command
         assert milestone in result.stdout, command
         assert "docs/plan.md" in result.stdout, command
+
+
+def test_gpus_command_lists_the_spec_database() -> None:
+    result = runner.invoke(app, ["gpus"])
+    assert result.exit_code == 0
+    assert "h100-sxm" in result.stdout
+    assert "rtx-4090" in result.stdout
+
+
+def test_plan_command_requires_a_known_gpu() -> None:
+    result = runner.invoke(app, ["plan", "--model", "x/y", "--gpu", "gtx-750-ti"])
+    assert result.exit_code == 1
+    assert "unknown GPU" in result.stdout
+
+
+def _declared_option_names(callback: object) -> set[str]:
+    """CLI flag names declared by a command callback.
+
+    Introspects the signature rather than the rendered ``--help`` text, because rich wraps
+    and truncates output at the terminal width — which differs between a developer's terminal
+    and CI, making any assertion on rendered help environment-dependent.
+    """
+    names: set[str] = set()
+    for parameter in inspect.signature(callback).parameters.values():  # type: ignore[arg-type]
+        default = parameter.default
+        for attribute in ("param_decls", "_param_decls"):
+            decls = getattr(default, attribute, None)
+            if decls:
+                names.update(str(d) for d in decls if str(d).startswith("-"))
+    return names
+
+
+def test_plan_command_declares_expected_options() -> None:
+    """The plan command needs no GPU, so it must be reachable in any environment."""
+    from infertune.cli import plan_cmd
+
+    declared = _declared_option_names(plan_cmd)
+    for option in ("--model", "--gpu", "--tp", "--max-num-seqs", "--max-model-len", "--kv-dtype"):
+        assert option in declared, f"{option} not declared; found {sorted(declared)}"
+
+
+def test_plan_help_exits_cleanly() -> None:
+    """Rendering is width-dependent, so assert only on the exit status here."""
+    assert runner.invoke(app, ["plan", "--help"]).exit_code == 0
+
+
+def test_expected_commands_are_registered() -> None:
+    registered = {
+        info.name or (info.callback.__name__ if info.callback else "")
+        for info in app.registered_commands
+    }
+    for command in ("kv", "working-set", "plan", "gpus", "profile", "benchmark", "tune"):
+        assert command in registered, f"{command} missing; found {sorted(registered)}"

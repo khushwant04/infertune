@@ -167,6 +167,26 @@ card's KV budget once weights are subtracted, or about 9,900 tokens for Llama-3.
 This is the opposite of the disk-capacity convention, which is why it is easy to get backwards.
 `units.vram_nameplate()` exists solely to make the choice explicit at every call site.
 
+**Error 1b (found in M1): tied embeddings must be deduplicated.** Qwen3-0.6B declares
+``tie_word_embeddings: true`` *and* ships both `lm_head.weight` and
+`model.embed_tokens.weight`. Only one copy is resident at inference time, so summing every
+tensor overstates resident weights by a whole 151936x1024 matrix — **26.1%** on that model.
+Note that Qwen3-0.6B-**Base** omits `lm_head` entirely, so the correction is checkpoint-specific
+and cannot be inferred from the config alone. This is the strongest argument for measuring
+tensor metadata rather than deriving from parameter counts.
+
+**Error 1c (found in M1): the checkpoint's own `metadata.total_size` cannot be trusted.**
+The safetensors shard index publishes a `total_size` field, which is tempting to use as a
+one-request byte total. For deepseek-ai/DeepSeek-V3 it claims **1369 GB** while the tensor
+headers sum to **689 GB** — a **1.99x** overstatement, because the field is computed as if
+every tensor were 16-bit and the checkpoint is fp8. An estimator trusting it would have
+declared DeepSeek-V3 infeasible on 8xH200 when it comfortably fits.
+
+The fix is to read every shard header and sum `data_offsets`, parallelised — 163 shards and
+91,991 tensors complete in about 8 seconds. The index's claim is still read, and any
+disagreement is surfaced as a diagnostic, which makes the tool more accurate than the
+checkpoint's own metadata.
+
 **Error 2: aggregate percentiles were composed from per-request percentiles.** The original
 example computed a p95 working set as `concurrency × (input_p95 + output_p95)`. That is not a p95
 of anything. The sum of many independent sequence lengths concentrates around its mean, so the
@@ -515,10 +535,28 @@ load-bearing: `AttentionSpec.kv_bytes_per_token` with TP head-replication handli
 `WorkloadProfile.working_set` Monte-Carlo sampling. Both are exposed as working CLI commands
 (`infertune kv`, `infertune working-set`) so the arithmetic can be checked by hand.
 
-**M1 — Analyzer + Estimator (1.5 wk).** HF config parsing; safetensors-header weight
-measurement; GQA/MHA KV model; overhead terms; GPU spec DB (~15 GPUs) + NVML path; the ledger.
-*Accept:* weight bytes within **±1%** of ground truth for 20 checkpoints spanning dense/MoE/AWQ/
-GPTQ/fp8; ledger totals reconcile to a stated total; runs with no GPU present.
+**M1 — Analyzer + Estimator (1.5 wk). ✅ Done.** HF config parsing; safetensors-header weight
+measurement; per-architecture cache models; overhead terms; GPU spec DB (15 GPUs) + NVML path;
+the ledger.
+*Accept:* weight bytes within ±1% across 20 checkpoints — **achieved 0.0000% (byte-exact) on
+20/20**, spanning dense, MoE, MLA, Mamba-hybrid, interleaved-attention, AWQ, mxfp4, fp8
+compressed-tensors, tied-embedding and encoder-decoder checkpoints ✅; ledger reconciles exactly
+against usable VRAM, asserted for every plan ✅; runs with no GPU present ✅.
+
+Delivered beyond the original scope, because the naive formula is most wrong exactly here:
+
+* **MLA** (`MLASpec`) — DeepSeek-V3 caches one 576-element latent per token per layer. The GQA
+  formula overestimates by **56.9x**, matching an independently published ~56x measurement.
+  The latent is *not* TP-sharded, and fp8 MLA saves 1.76x rather than 2x (vLLM's `fp8_ds_mla`
+  keeps RoPE in bf16 and adds per-token scales: 656 B/layer, not 576).
+* **Attention/Mamba hybrids** (`RecurrentSpec`, `LayeredCacheSpec`) — Nemotron-H-8B holds KV on
+  only 4 of 52 layers (**13x** correction) plus ~50 MiB of *fixed* state per sequence, for which
+  `max_num_seqs` genuinely is a reservation.
+* **Interleaved local/global attention** — gpt-oss-20b caps 12 of 24 layers at a 128-token
+  window, so cache growth is sub-linear (**~2x** at 8K).
+
+`infertune plan` is also wired up early, since the machinery existed and a milestone that
+cannot be run cannot be reviewed.
 
 **M2 — vLLM adapter + report (1 wk).** Introspected schema, `LaunchSpec` generation, validation
 diagnostics, rich report with ledger, envelope, `B*`, binding constraint, and risks.
