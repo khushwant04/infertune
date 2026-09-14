@@ -6,6 +6,8 @@ important behaviour is that unimplemented commands *fail* rather than emit numbe
 
 from __future__ import annotations
 
+import inspect
+
 from typer.testing import CliRunner
 
 from infertune.cli import app
@@ -104,9 +106,41 @@ def test_plan_command_requires_a_known_gpu() -> None:
     assert "unknown GPU" in result.stdout
 
 
-def test_plan_command_is_registered_with_expected_options() -> None:
+def _declared_option_names(callback: object) -> set[str]:
+    """CLI flag names declared by a command callback.
+
+    Introspects the signature rather than the rendered ``--help`` text, because rich wraps
+    and truncates output at the terminal width — which differs between a developer's terminal
+    and CI, making any assertion on rendered help environment-dependent.
+    """
+    names: set[str] = set()
+    for parameter in inspect.signature(callback).parameters.values():  # type: ignore[arg-type]
+        default = parameter.default
+        for attribute in ("param_decls", "_param_decls"):
+            decls = getattr(default, attribute, None)
+            if decls:
+                names.update(str(d) for d in decls if str(d).startswith("-"))
+    return names
+
+
+def test_plan_command_declares_expected_options() -> None:
     """The plan command needs no GPU, so it must be reachable in any environment."""
-    result = runner.invoke(app, ["plan", "--help"])
-    assert result.exit_code == 0
-    for option in ("--model", "--gpu", "--tp", "--max-num-seqs", "--kv-dtype"):
-        assert option in result.stdout
+    from infertune.cli import plan_cmd
+
+    declared = _declared_option_names(plan_cmd)
+    for option in ("--model", "--gpu", "--tp", "--max-num-seqs", "--max-model-len", "--kv-dtype"):
+        assert option in declared, f"{option} not declared; found {sorted(declared)}"
+
+
+def test_plan_help_exits_cleanly() -> None:
+    """Rendering is width-dependent, so assert only on the exit status here."""
+    assert runner.invoke(app, ["plan", "--help"]).exit_code == 0
+
+
+def test_expected_commands_are_registered() -> None:
+    registered = {
+        info.name or (info.callback.__name__ if info.callback else "")
+        for info in app.registered_commands
+    }
+    for command in ("kv", "working-set", "plan", "gpus", "profile", "benchmark", "tune"):
+        assert command in registered, f"{command} missing; found {sorted(registered)}"

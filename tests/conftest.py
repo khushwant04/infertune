@@ -5,7 +5,16 @@ Network-dependent tests are opt-in so the default suite and CI stay hermetic and
 
 from __future__ import annotations
 
+import os
+
 import pytest
+
+# Pin the rendering width before rich is imported. Rich sizes output to the terminal, so
+# assertions on rendered CLI output otherwise pass on a wide developer terminal and fail in
+# CI's 80-column environment. Prefer introspecting the app over asserting on rendered text,
+# but where output is checked, make the width deterministic.
+os.environ.setdefault("COLUMNS", "200")
+os.environ.setdefault("TERM", "dumb")
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:
