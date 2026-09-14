@@ -120,7 +120,26 @@
       "dense_flops": { "bf16": 2250e12, "fp8_e4m3": 4500e12, "nvfp4": 9000e12 },
       "interconnect": "nvlink-5"
     },
+    "a10": {
+      "_note": [
+        "MEASURED on Azure Standard_NV36ads_A10_v5 (2026-09-14), presented as 'NVIDIA A10-24Q'",
+        "via GRID vGPU 18.8 / driver 570.237. nvidia-smi total = 24512 MiB (23.9375 GiB);",
+        "torch.cuda.get_device_properties reports 23.72 GiB usable and 72 SMs.",
+        "dense_flops are NVIDIA's DENSE figures; the datasheet's 250 TFLOPS BF16 requires",
+        "structured sparsity and is not achievable for LLM inference.",
+        "No fp8: sm_86 < sm_89. See docs/gpu-validation-a10.md."
+      ],
+      "name": "NVIDIA A10",
+      "vram_gib": 23.9375,
+      "usable_fraction": 0.991,
+      "compute_capability": [8, 6],
+      "sm_count": 72,
+      "mem_bandwidth_gb_s": 600,
+      "dense_flops": { "fp32": 31.2e12, "fp16": 125e12, "bf16": 125e12 },
+      "interconnect": "pcie-gen4-x16"
+    },
     "a10g": {
+      "_note": "A10G (AWS) is a distinct, lower-clocked GA102 part; these FLOPS are unverified.",
       "name": "NVIDIA A10G",
       "vram_gib": 22.49,
       "usable_fraction": 0.985,

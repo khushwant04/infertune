@@ -36,7 +36,7 @@ class NVMLUnavailableError(RuntimeError):
 
 def _import_nvml() -> Any:
     try:
-        import pynvml  # type: ignore[import-not-found]
+        import pynvml
     except ImportError as exc:  # pragma: no cover - depends on the environment
         raise NVMLUnavailableError(
             "NVML bindings are not installed. Install the optional extra with "

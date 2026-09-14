@@ -1,0 +1,1507 @@
+{
+ "choices": {
+  "all2all_backend": [
+   "allgather_reducescatter",
+   "deepep_high_throughput",
+   "deepep_low_latency",
+   "flashinfer_all2allv",
+   "flashinfer_nvlink_one_sided",
+   "flashinfer_nvlink_two_sided",
+   "mori",
+   "naive",
+   "nixl_ep",
+   "pplx"
+  ],
+  "collect_detailed_traces": [
+   "None",
+   "all",
+   "all,model",
+   "all,worker",
+   "model",
+   "model,all",
+   "model,worker",
+   "worker",
+   "worker,all",
+   "worker,model"
+  ],
+  "convert": [
+   "auto",
+   "classify",
+   "embed",
+   "none"
+  ],
+  "dcp_comm_backend": [
+   "a2a",
+   "ag_rs"
+  ],
+  "dtype": [
+   "auto",
+   "bfloat16",
+   "float",
+   "float16",
+   "float32",
+   "half"
+  ],
+  "expert_placement_strategy": [
+   "linear",
+   "round_robin"
+  ],
+  "gdn_prefill_backend": [
+   "flashinfer",
+   "triton"
+  ],
+  "kv_cache_dtype": [
+   "auto",
+   "bfloat16",
+   "float16",
+   "fp8",
+   "fp8_ds_mla",
+   "fp8_e4m3",
+   "fp8_e5m2",
+   "fp8_inc"
+  ],
+  "kv_offloading_backend": [
+   "lmcache",
+   "native"
+  ],
+  "logprobs_mode": [
+   "processed_logits",
+   "processed_logprobs",
+   "raw_logits",
+   "raw_logprobs"
+  ],
+  "lora_dtype": [
+   "auto",
+   "bfloat16",
+   "float16"
+  ],
+  "mamba_cache_dtype": [
+   "auto",
+   "float16",
+   "float32"
+  ],
+  "mamba_cache_mode": [
+   "align",
+   "all",
+   "none"
+  ],
+  "mamba_ssm_cache_dtype": [
+   "auto",
+   "float16",
+   "float32"
+  ],
+  "max_lora_rank": [
+   "1",
+   "128",
+   "16",
+   "256",
+   "32",
+   "320",
+   "512",
+   "64",
+   "8"
+  ],
+  "mm_encoder_tp_mode": [
+   "data",
+   "weights"
+  ],
+  "mm_processor_cache_type": [
+   "lru",
+   "shm"
+  ],
+  "mm_tensor_ipc": [
+   "direct_rpc",
+   "torch_shm"
+  ],
+  "moe_backend": [
+   "aiter",
+   "auto",
+   "cutlass",
+   "deep_gemm",
+   "flashinfer_cutedsl",
+   "flashinfer_cutlass",
+   "flashinfer_trtllm",
+   "marlin",
+   "triton"
+  ],
+  "offload_backend": [
+   "auto",
+   "prefetch",
+   "uva"
+  ],
+  "performance_mode": [
+   "balanced",
+   "interactivity",
+   "throughput"
+  ],
+  "prefix_caching_hash_algo": [
+   "sha256",
+   "sha256_cbor",
+   "xxhash",
+   "xxhash_cbor"
+  ],
+  "runner": [
+   "auto",
+   "draft",
+   "generate",
+   "pooling"
+  ],
+  "scheduling_policy": [
+   "fcfs",
+   "priority"
+  ]
+ },
+ "cli_flags": {
+  "additional_config": [
+   "--additional-config"
+  ],
+  "aggregate_engine_logging": [
+   "--aggregate-engine-logging"
+  ],
+  "all2all_backend": [
+   "--all2all-backend"
+  ],
+  "allow_deprecated_quantization": [
+   "--allow-deprecated-quantization",
+   "--no-allow-deprecated-quantization"
+  ],
+  "allowed_local_media_path": [
+   "--allowed-local-media-path"
+  ],
+  "allowed_media_domains": [
+   "--allowed-media-domains"
+  ],
+  "async_scheduling": [
+   "--async-scheduling",
+   "--no-async-scheduling"
+  ],
+  "attention_backend": [
+   "--attention-backend"
+  ],
+  "attention_config": [
+   "--attention-config",
+   "-ac"
+  ],
+  "block_size": [
+   "--block-size"
+  ],
+  "calculate_kv_scales": [
+   "--calculate-kv-scales",
+   "--no-calculate-kv-scales"
+  ],
+  "code_revision": [
+   "--code-revision"
+  ],
+  "collect_detailed_traces": [
+   "--collect-detailed-traces"
+  ],
+  "compilation_config": [
+   "--compilation-config",
+   "-cc"
+  ],
+  "config_format": [
+   "--config-format"
+  ],
+  "convert": [
+   "--convert"
+  ],
+  "cp_kv_cache_interleave_size": [
+   "--cp-kv-cache-interleave-size"
+  ],
+  "cpu_offload_gb": [
+   "--cpu-offload-gb"
+  ],
+  "cpu_offload_params": [
+   "--cpu-offload-params"
+  ],
+  "cudagraph_capture_sizes": [
+   "--cudagraph-capture-sizes"
+  ],
+  "cudagraph_metrics": [
+   "--cudagraph-metrics",
+   "--no-cudagraph-metrics"
+  ],
+  "data_parallel_address": [
+   "--data-parallel-address",
+   "-dpa"
+  ],
+  "data_parallel_backend": [
+   "--data-parallel-backend",
+   "-dpb"
+  ],
+  "data_parallel_external_lb": [
+   "--data-parallel-external-lb",
+   "--no-data-parallel-external-lb",
+   "-dpe"
+  ],
+  "data_parallel_hybrid_lb": [
+   "--data-parallel-hybrid-lb",
+   "--no-data-parallel-hybrid-lb",
+   "-dph"
+  ],
+  "data_parallel_rank": [
+   "--data-parallel-rank",
+   "-dpn"
+  ],
+  "data_parallel_rpc_port": [
+   "--data-parallel-rpc-port",
+   "-dpp"
+  ],
+  "data_parallel_size": [
+   "--data-parallel-size",
+   "-dp"
+  ],
+  "data_parallel_size_local": [
+   "--data-parallel-size-local",
+   "-dpl"
+  ],
+  "data_parallel_start_rank": [
+   "--data-parallel-start-rank",
+   "-dpr"
+  ],
+  "dbo_decode_token_threshold": [
+   "--dbo-decode-token-threshold"
+  ],
+  "dbo_prefill_token_threshold": [
+   "--dbo-prefill-token-threshold"
+  ],
+  "dcp_comm_backend": [
+   "--dcp-comm-backend"
+  ],
+  "dcp_kv_cache_interleave_size": [
+   "--dcp-kv-cache-interleave-size"
+  ],
+  "decode_context_parallel_size": [
+   "--decode-context-parallel-size",
+   "-dcp"
+  ],
+  "default_mm_loras": [
+   "--default-mm-loras"
+  ],
+  "disable_cascade_attn": [
+   "--disable-cascade-attn",
+   "--no-disable-cascade-attn"
+  ],
+  "disable_chunked_mm_input": [
+   "--disable-chunked-mm-input",
+   "--no-disable-chunked-mm-input"
+  ],
+  "disable_custom_all_reduce": [
+   "--disable-custom-all-reduce",
+   "--no-disable-custom-all-reduce"
+  ],
+  "disable_hybrid_kv_cache_manager": [
+   "--disable-hybrid-kv-cache-manager",
+   "--no-disable-hybrid-kv-cache-manager"
+  ],
+  "disable_log_stats": [
+   "--disable-log-stats"
+  ],
+  "disable_nccl_for_dp_synchronization": [
+   "--disable-nccl-for-dp-synchronization",
+   "--no-disable-nccl-for-dp-synchronization"
+  ],
+  "disable_sliding_window": [
+   "--disable-sliding-window",
+   "--no-disable-sliding-window"
+  ],
+  "distributed_executor_backend": [
+   "--distributed-executor-backend"
+  ],
+  "distributed_timeout_seconds": [
+   "--distributed-timeout-seconds"
+  ],
+  "download_dir": [
+   "--download-dir"
+  ],
+  "dtype": [
+   "--dtype"
+  ],
+  "ec_transfer_config": [
+   "--ec-transfer-config"
+  ],
+  "enable_chunked_prefill": [
+   "--enable-chunked-prefill",
+   "--no-enable-chunked-prefill"
+  ],
+  "enable_dbo": [
+   "--enable-dbo",
+   "--no-enable-dbo"
+  ],
+  "enable_elastic_ep": [
+   "--enable-elastic-ep",
+   "--no-enable-elastic-ep"
+  ],
+  "enable_ep_weight_filter": [
+   "--enable-ep-weight-filter",
+   "--no-enable-ep-weight-filter"
+  ],
+  "enable_eplb": [
+   "--enable-eplb",
+   "--no-enable-eplb"
+  ],
+  "enable_expert_parallel": [
+   "--enable-expert-parallel",
+   "--no-enable-expert-parallel",
+   "-ep"
+  ],
+  "enable_flashinfer_autotune": [
+   "--enable-flashinfer-autotune",
+   "--no-enable-flashinfer-autotune"
+  ],
+  "enable_layerwise_nvtx_tracing": [
+   "--enable-layerwise-nvtx-tracing",
+   "--no-enable-layerwise-nvtx-tracing"
+  ],
+  "enable_logging_iteration_details": [
+   "--enable-logging-iteration-details",
+   "--no-enable-logging-iteration-details"
+  ],
+  "enable_lora": [
+   "--enable-lora",
+   "--no-enable-lora"
+  ],
+  "enable_mfu_metrics": [
+   "--enable-mfu-metrics",
+   "--no-enable-mfu-metrics"
+  ],
+  "enable_mm_embeds": [
+   "--enable-mm-embeds",
+   "--no-enable-mm-embeds"
+  ],
+  "enable_prefix_caching": [
+   "--enable-prefix-caching",
+   "--no-enable-prefix-caching"
+  ],
+  "enable_prompt_embeds": [
+   "--enable-prompt-embeds",
+   "--no-enable-prompt-embeds"
+  ],
+  "enable_return_routed_experts": [
+   "--enable-return-routed-experts",
+   "--no-enable-return-routed-experts"
+  ],
+  "enable_sleep_mode": [
+   "--enable-sleep-mode",
+   "--no-enable-sleep-mode"
+  ],
+  "enable_tower_connector_lora": [
+   "--enable-tower-connector-lora",
+   "--no-enable-tower-connector-lora"
+  ],
+  "enforce_eager": [
+   "--enforce-eager",
+   "--no-enforce-eager"
+  ],
+  "eplb_config": [
+   "--eplb-config"
+  ],
+  "expert_placement_strategy": [
+   "--expert-placement-strategy"
+  ],
+  "fail_on_environ_validation": [
+   "--fail-on-environ-validation",
+   "--no-fail-on-environ-validation"
+  ],
+  "fully_sharded_loras": [
+   "--fully-sharded-loras",
+   "--no-fully-sharded-loras"
+  ],
+  "gdn_prefill_backend": [
+   "--gdn-prefill-backend"
+  ],
+  "generation_config": [
+   "--generation-config"
+  ],
+  "gpu_memory_utilization": [
+   "--gpu-memory-utilization"
+  ],
+  "help": [
+   "--help",
+   "-h"
+  ],
+  "hf_config_path": [
+   "--hf-config-path"
+  ],
+  "hf_overrides": [
+   "--hf-overrides"
+  ],
+  "hf_token": [
+   "--hf-token"
+  ],
+  "ignore_patterns": [
+   "--ignore-patterns"
+  ],
+  "interleave_mm_strings": [
+   "--interleave-mm-strings",
+   "--no-interleave-mm-strings"
+  ],
+  "io_processor_plugin": [
+   "--io-processor-plugin"
+  ],
+  "kernel_config": [
+   "--kernel-config"
+  ],
+  "kv_cache_dtype": [
+   "--kv-cache-dtype"
+  ],
+  "kv_cache_dtype_skip_layers": [
+   "--kv-cache-dtype-skip-layers"
+  ],
+  "kv_cache_memory_bytes": [
+   "--kv-cache-memory-bytes"
+  ],
+  "kv_cache_metrics": [
+   "--kv-cache-metrics",
+   "--no-kv-cache-metrics"
+  ],
+  "kv_cache_metrics_sample": [
+   "--kv-cache-metrics-sample"
+  ],
+  "kv_events_config": [
+   "--kv-events-config"
+  ],
+  "kv_offloading_backend": [
+   "--kv-offloading-backend"
+  ],
+  "kv_offloading_size": [
+   "--kv-offloading-size"
+  ],
+  "kv_sharing_fast_prefill": [
+   "--kv-sharing-fast-prefill",
+   "--no-kv-sharing-fast-prefill"
+  ],
+  "kv_transfer_config": [
+   "--kv-transfer-config"
+  ],
+  "language_model_only": [
+   "--language-model-only",
+   "--no-language-model-only"
+  ],
+  "limit_mm_per_prompt": [
+   "--limit-mm-per-prompt"
+  ],
+  "load_format": [
+   "--load-format"
+  ],
+  "logits_processors": [
+   "--logits-processors"
+  ],
+  "logprobs_mode": [
+   "--logprobs-mode"
+  ],
+  "long_prefill_token_threshold": [
+   "--long-prefill-token-threshold"
+  ],
+  "lora_dtype": [
+   "--lora-dtype"
+  ],
+  "lora_target_modules": [
+   "--lora-target-modules"
+  ],
+  "mamba_block_size": [
+   "--mamba-block-size"
+  ],
+  "mamba_cache_dtype": [
+   "--mamba-cache-dtype"
+  ],
+  "mamba_cache_mode": [
+   "--mamba-cache-mode"
+  ],
+  "mamba_ssm_cache_dtype": [
+   "--mamba-ssm-cache-dtype"
+  ],
+  "master_addr": [
+   "--master-addr"
+  ],
+  "master_port": [
+   "--master-port"
+  ],
+  "max_cpu_loras": [
+   "--max-cpu-loras"
+  ],
+  "max_cudagraph_capture_size": [
+   "--max-cudagraph-capture-size"
+  ],
+  "max_logprobs": [
+   "--max-logprobs"
+  ],
+  "max_long_partial_prefills": [
+   "--max-long-partial-prefills"
+  ],
+  "max_lora_rank": [
+   "--max-lora-rank"
+  ],
+  "max_loras": [
+   "--max-loras"
+  ],
+  "max_model_len": [
+   "--max-model-len"
+  ],
+  "max_num_batched_tokens": [
+   "--max-num-batched-tokens"
+  ],
+  "max_num_partial_prefills": [
+   "--max-num-partial-prefills"
+  ],
+  "max_num_seqs": [
+   "--max-num-seqs"
+  ],
+  "max_parallel_loading_workers": [
+   "--max-parallel-loading-workers"
+  ],
+  "media_io_kwargs": [
+   "--media-io-kwargs"
+  ],
+  "mm_encoder_attn_backend": [
+   "--mm-encoder-attn-backend"
+  ],
+  "mm_encoder_only": [
+   "--mm-encoder-only",
+   "--no-mm-encoder-only"
+  ],
+  "mm_encoder_tp_mode": [
+   "--mm-encoder-tp-mode"
+  ],
+  "mm_processor_cache_gb": [
+   "--mm-processor-cache-gb"
+  ],
+  "mm_processor_cache_type": [
+   "--mm-processor-cache-type"
+  ],
+  "mm_processor_kwargs": [
+   "--mm-processor-kwargs"
+  ],
+  "mm_shm_cache_max_object_size_mb": [
+   "--mm-shm-cache-max-object-size-mb"
+  ],
+  "mm_tensor_ipc": [
+   "--mm-tensor-ipc"
+  ],
+  "model": [
+   "--model"
+  ],
+  "model_impl": [
+   "--model-impl"
+  ],
+  "model_loader_extra_config": [
+   "--model-loader-extra-config"
+  ],
+  "moe_backend": [
+   "--moe-backend"
+  ],
+  "nnodes": [
+   "--nnodes",
+   "-n"
+  ],
+  "node_rank": [
+   "--node-rank",
+   "-r"
+  ],
+  "num_gpu_blocks_override": [
+   "--num-gpu-blocks-override"
+  ],
+  "offload_backend": [
+   "--offload-backend"
+  ],
+  "offload_group_size": [
+   "--offload-group-size"
+  ],
+  "offload_num_in_group": [
+   "--offload-num-in-group"
+  ],
+  "offload_params": [
+   "--offload-params"
+  ],
+  "offload_prefetch_step": [
+   "--offload-prefetch-step"
+  ],
+  "optimization_level": [
+   "--optimization-level"
+  ],
+  "otlp_traces_endpoint": [
+   "--otlp-traces-endpoint"
+  ],
+  "override_attention_dtype": [
+   "--override-attention-dtype"
+  ],
+  "override_generation_config": [
+   "--override-generation-config"
+  ],
+  "performance_mode": [
+   "--performance-mode"
+  ],
+  "pipeline_parallel_size": [
+   "--pipeline-parallel-size",
+   "-pp"
+  ],
+  "pooler_config": [
+   "--pooler-config"
+  ],
+  "prefill_context_parallel_size": [
+   "--prefill-context-parallel-size",
+   "-pcp"
+  ],
+  "prefix_caching_hash_algo": [
+   "--prefix-caching-hash-algo"
+  ],
+  "profiler_config": [
+   "--profiler-config"
+  ],
+  "pt_load_map_location": [
+   "--pt-load-map-location"
+  ],
+  "quantization": [
+   "--quantization",
+   "-q"
+  ],
+  "ray_workers_use_nsight": [
+   "--no-ray-workers-use-nsight",
+   "--ray-workers-use-nsight"
+  ],
+  "reasoning_config": [
+   "--reasoning-config"
+  ],
+  "reasoning_parser": [
+   "--reasoning-parser"
+  ],
+  "reasoning_parser_plugin": [
+   "--reasoning-parser-plugin"
+  ],
+  "renderer_num_workers": [
+   "--renderer-num-workers"
+  ],
+  "revision": [
+   "--revision"
+  ],
+  "runner": [
+   "--runner"
+  ],
+  "safetensors_load_strategy": [
+   "--safetensors-load-strategy"
+  ],
+  "scheduler_cls": [
+   "--scheduler-cls"
+  ],
+  "scheduler_reserve_full_isl": [
+   "--no-scheduler-reserve-full-isl",
+   "--scheduler-reserve-full-isl"
+  ],
+  "scheduling_policy": [
+   "--scheduling-policy"
+  ],
+  "seed": [
+   "--seed"
+  ],
+  "served_model_name": [
+   "--served-model-name"
+  ],
+  "show_hidden_metrics_for_version": [
+   "--show-hidden-metrics-for-version"
+  ],
+  "shutdown_timeout": [
+   "--shutdown-timeout"
+  ],
+  "skip_mm_profiling": [
+   "--no-skip-mm-profiling",
+   "--skip-mm-profiling"
+  ],
+  "skip_tokenizer_init": [
+   "--no-skip-tokenizer-init",
+   "--skip-tokenizer-init"
+  ],
+  "specialize_active_lora": [
+   "--no-specialize-active-lora",
+   "--specialize-active-lora"
+  ],
+  "speculative_config": [
+   "--speculative-config",
+   "-sc"
+  ],
+  "stream_interval": [
+   "--stream-interval"
+  ],
+  "structured_outputs_config": [
+   "--structured-outputs-config"
+  ],
+  "tensor_parallel_size": [
+   "--tensor-parallel-size",
+   "-tp"
+  ],
+  "tokenizer": [
+   "--tokenizer"
+  ],
+  "tokenizer_mode": [
+   "--tokenizer-mode"
+  ],
+  "tokenizer_revision": [
+   "--tokenizer-revision"
+  ],
+  "trust_remote_code": [
+   "--no-trust-remote-code",
+   "--trust-remote-code"
+  ],
+  "ubatch_size": [
+   "--ubatch-size"
+  ],
+  "use_tqdm_on_load": [
+   "--no-use-tqdm-on-load",
+   "--use-tqdm-on-load"
+  ],
+  "video_pruning_rate": [
+   "--video-pruning-rate"
+  ],
+  "weight_transfer_config": [
+   "--weight-transfer-config"
+  ],
+  "worker_cls": [
+   "--worker-cls"
+  ],
+  "worker_extension_cls": [
+   "--worker-extension-cls"
+  ]
+ },
+ "fields": {
+  "_api_process_count": {
+   "default": 1,
+   "type": "<class 'int'>"
+  },
+  "_api_process_rank": {
+   "default": 0,
+   "type": "<class 'int'>"
+  },
+  "additional_config": {
+   "default": "<factory>",
+   "type": "dict[str, typing.Any]"
+  },
+  "aggregate_engine_logging": {
+   "default": false,
+   "type": "<class 'bool'>"
+  },
+  "all2all_backend": {
+   "default": "allgather_reducescatter",
+   "type": "typing.Literal['naive', 'pplx', 'deepep_high_throughput', 'deepep_low_latency', 'mori', 'nixl_ep', 'allgather_reducescatter', 'flashinfer_all2allv', 'flashinfer_nvlink_two_sided', 'flashinfer_nvlink_one_sided']"
+  },
+  "allow_deprecated_quantization": {
+   "default": false,
+   "type": "<class 'bool'>"
+  },
+  "allowed_local_media_path": {
+   "default": "",
+   "type": "<class 'str'>"
+  },
+  "allowed_media_domains": {
+   "default": null,
+   "type": "list[str] | None"
+  },
+  "async_scheduling": {
+   "default": null,
+   "type": "bool | None"
+  },
+  "attention_backend": {
+   "default": null,
+   "type": "vllm.v1.attention.backends.registry.AttentionBackendEnum | None"
+  },
+  "attention_config": {
+   "default": "<factory>",
+   "type": "<class 'vllm.config.attention.AttentionConfig'>"
+  },
+  "block_size": {
+   "default": null,
+   "type": "int | None"
+  },
+  "calculate_kv_scales": {
+   "default": false,
+   "type": "<class 'bool'>"
+  },
+  "code_revision": {
+   "default": null,
+   "type": "str | None"
+  },
+  "collect_detailed_traces": {
+   "default": null,
+   "type": "list[typing.Literal['model', 'worker', 'all']] | None"
+  },
+  "compilation_config": {
+   "default": "<factory>",
+   "type": "<class 'vllm.config.compilation.CompilationConfig'>"
+  },
+  "config_format": {
+   "default": "auto",
+   "type": "<class 'str'>"
+  },
+  "convert": {
+   "default": "auto",
+   "type": "typing.Literal['auto', 'none', 'embed', 'classify']"
+  },
+  "cp_kv_cache_interleave_size": {
+   "default": 1,
+   "type": "<class 'int'>"
+  },
+  "cpu_offload_gb": {
+   "default": 0,
+   "type": "<class 'float'>"
+  },
+  "cpu_offload_params": {
+   "default": "<factory>",
+   "type": "set[str]"
+  },
+  "cudagraph_capture_sizes": {
+   "default": null,
+   "type": "list[int] | None"
+  },
+  "cudagraph_metrics": {
+   "default": false,
+   "type": "<class 'bool'>"
+  },
+  "data_parallel_address": {
+   "default": null,
+   "type": "str | None"
+  },
+  "data_parallel_backend": {
+   "default": "mp",
+   "type": "typing.Literal['ray', 'mp']"
+  },
+  "data_parallel_external_lb": {
+   "default": false,
+   "type": "<class 'bool'>"
+  },
+  "data_parallel_hybrid_lb": {
+   "default": false,
+   "type": "<class 'bool'>"
+  },
+  "data_parallel_rank": {
+   "default": null,
+   "type": "int | None"
+  },
+  "data_parallel_rpc_port": {
+   "default": null,
+   "type": "int | None"
+  },
+  "data_parallel_size": {
+   "default": 1,
+   "type": "<class 'int'>"
+  },
+  "data_parallel_size_local": {
+   "default": null,
+   "type": "int | None"
+  },
+  "data_parallel_start_rank": {
+   "default": null,
+   "type": "int | None"
+  },
+  "dbo_decode_token_threshold": {
+   "default": 32,
+   "type": "<class 'int'>"
+  },
+  "dbo_prefill_token_threshold": {
+   "default": 512,
+   "type": "<class 'int'>"
+  },
+  "dcp_comm_backend": {
+   "default": "ag_rs",
+   "type": "typing.Literal['ag_rs', 'a2a']"
+  },
+  "dcp_kv_cache_interleave_size": {
+   "default": 1,
+   "type": "<class 'int'>"
+  },
+  "decode_context_parallel_size": {
+   "default": 1,
+   "type": "<class 'int'>"
+  },
+  "default_mm_loras": {
+   "default": null,
+   "type": "dict[str, str] | None"
+  },
+  "disable_cascade_attn": {
+   "default": true,
+   "type": "<class 'bool'>"
+  },
+  "disable_chunked_mm_input": {
+   "default": false,
+   "type": "<class 'bool'>"
+  },
+  "disable_custom_all_reduce": {
+   "default": false,
+   "type": "<class 'bool'>"
+  },
+  "disable_hybrid_kv_cache_manager": {
+   "default": null,
+   "type": "bool | None"
+  },
+  "disable_log_stats": {
+   "default": false,
+   "type": "<class 'bool'>"
+  },
+  "disable_nccl_for_dp_synchronization": {
+   "default": null,
+   "type": "bool | None"
+  },
+  "disable_sliding_window": {
+   "default": false,
+   "type": "<class 'bool'>"
+  },
+  "distributed_executor_backend": {
+   "default": null,
+   "type": "typing.Union[str, typing.Literal['ray', 'mp', 'uni', 'external_launcher'], type[typing.Any], NoneType]"
+  },
+  "distributed_timeout_seconds": {
+   "default": null,
+   "type": "int | None"
+  },
+  "download_dir": {
+   "default": null,
+   "type": "str | None"
+  },
+  "dtype": {
+   "default": "auto",
+   "type": "typing.Literal['auto', 'half', 'float16', 'bfloat16', 'float', 'float32']"
+  },
+  "ec_transfer_config": {
+   "default": null,
+   "type": "vllm.config.ec_transfer.ECTransferConfig | None"
+  },
+  "enable_chunked_prefill": {
+   "default": null,
+   "type": "bool | None"
+  },
+  "enable_dbo": {
+   "default": false,
+   "type": "<class 'bool'>"
+  },
+  "enable_elastic_ep": {
+   "default": false,
+   "type": "<class 'bool'>"
+  },
+  "enable_ep_weight_filter": {
+   "default": false,
+   "type": "<class 'bool'>"
+  },
+  "enable_eplb": {
+   "default": false,
+   "type": "<class 'bool'>"
+  },
+  "enable_expert_parallel": {
+   "default": false,
+   "type": "<class 'bool'>"
+  },
+  "enable_flashinfer_autotune": {
+   "default": null,
+   "type": "<class 'bool'>"
+  },
+  "enable_layerwise_nvtx_tracing": {
+   "default": false,
+   "type": "<class 'bool'>"
+  },
+  "enable_logging_iteration_details": {
+   "default": false,
+   "type": "<class 'bool'>"
+  },
+  "enable_lora": {
+   "default": false,
+   "type": "<class 'bool'>"
+  },
+  "enable_mfu_metrics": {
+   "default": false,
+   "type": "<class 'bool'>"
+  },
+  "enable_mm_embeds": {
+   "default": false,
+   "type": "<class 'bool'>"
+  },
+  "enable_mm_processor_stats": {
+   "default": false,
+   "type": "<class 'bool'>"
+  },
+  "enable_prefix_caching": {
+   "default": null,
+   "type": "bool | None"
+  },
+  "enable_prompt_embeds": {
+   "default": false,
+   "type": "<class 'bool'>"
+  },
+  "enable_return_routed_experts": {
+   "default": false,
+   "type": "<class 'bool'>"
+  },
+  "enable_sleep_mode": {
+   "default": false,
+   "type": "<class 'bool'>"
+  },
+  "enable_tower_connector_lora": {
+   "default": false,
+   "type": "<class 'bool'>"
+  },
+  "enforce_eager": {
+   "default": false,
+   "type": "<class 'bool'>"
+  },
+  "eplb_config": {
+   "default": "<factory>",
+   "type": "<class 'vllm.config.parallel.EPLBConfig'>"
+  },
+  "expert_placement_strategy": {
+   "default": "linear",
+   "type": "typing.Literal['linear', 'round_robin']"
+  },
+  "fail_on_environ_validation": {
+   "default": false,
+   "type": "<class 'bool'>"
+  },
+  "fully_sharded_loras": {
+   "default": false,
+   "type": "<class 'bool'>"
+  },
+  "gdn_prefill_backend": {
+   "default": null,
+   "type": "typing.Optional[typing.Literal['flashinfer', 'triton']]"
+  },
+  "generation_config": {
+   "default": "auto",
+   "type": "<class 'str'>"
+  },
+  "gpu_memory_utilization": {
+   "default": 0.9,
+   "type": "<class 'float'>"
+  },
+  "hf_config_path": {
+   "default": null,
+   "type": "str | None"
+  },
+  "hf_overrides": {
+   "default": "<factory>",
+   "type": "dict[str, typing.Any] | collections.abc.Callable[[typing.Any], typing.Any]"
+  },
+  "hf_token": {
+   "default": null,
+   "type": "bool | str | None"
+  },
+  "ignore_patterns": {
+   "default": "<factory>",
+   "type": "str | list[str]"
+  },
+  "interleave_mm_strings": {
+   "default": false,
+   "type": "<class 'bool'>"
+  },
+  "io_processor_plugin": {
+   "default": null,
+   "type": "str | None"
+  },
+  "kernel_config": {
+   "default": "<factory>",
+   "type": "<class 'vllm.config.kernel.KernelConfig'>"
+  },
+  "kv_cache_dtype": {
+   "default": "auto",
+   "type": "typing.Literal['auto', 'float16', 'bfloat16', 'fp8', 'fp8_e4m3', 'fp8_e5m2', 'fp8_inc', 'fp8_ds_mla']"
+  },
+  "kv_cache_dtype_skip_layers": {
+   "default": "<factory>",
+   "type": "list[str]"
+  },
+  "kv_cache_memory_bytes": {
+   "default": null,
+   "type": "int | None"
+  },
+  "kv_cache_metrics": {
+   "default": false,
+   "type": "<class 'bool'>"
+  },
+  "kv_cache_metrics_sample": {
+   "default": 0.01,
+   "type": "<class 'float'>"
+  },
+  "kv_events_config": {
+   "default": null,
+   "type": "vllm.config.kv_events.KVEventsConfig | None"
+  },
+  "kv_offloading_backend": {
+   "default": "native",
+   "type": "typing.Literal['native', 'lmcache']"
+  },
+  "kv_offloading_size": {
+   "default": null,
+   "type": "float | None"
+  },
+  "kv_sharing_fast_prefill": {
+   "default": false,
+   "type": "<class 'bool'>"
+  },
+  "kv_transfer_config": {
+   "default": null,
+   "type": "vllm.config.kv_transfer.KVTransferConfig | None"
+  },
+  "language_model_only": {
+   "default": false,
+   "type": "<class 'bool'>"
+  },
+  "limit_mm_per_prompt": {
+   "default": "<factory>",
+   "type": "dict[str, int | dict[str, int]]"
+  },
+  "load_format": {
+   "default": "auto",
+   "type": "str | typing.Any"
+  },
+  "logits_processors": {
+   "default": null,
+   "type": "list[str | type[vllm.v1.sample.logits_processor.interface.LogitsProcessor]] | None"
+  },
+  "logprobs_mode": {
+   "default": "raw_logprobs",
+   "type": "typing.Literal['raw_logits', 'raw_logprobs', 'processed_logits', 'processed_logprobs']"
+  },
+  "long_prefill_token_threshold": {
+   "default": 0,
+   "type": "<class 'int'>"
+  },
+  "lora_dtype": {
+   "default": "auto",
+   "type": "str | torch.dtype | None"
+  },
+  "lora_target_modules": {
+   "default": null,
+   "type": "list[str] | None"
+  },
+  "mamba_block_size": {
+   "default": null,
+   "type": "int | None"
+  },
+  "mamba_cache_dtype": {
+   "default": "auto",
+   "type": "typing.Literal['auto', 'float32', 'float16']"
+  },
+  "mamba_cache_mode": {
+   "default": "none",
+   "type": "typing.Literal['all', 'align', 'none']"
+  },
+  "mamba_ssm_cache_dtype": {
+   "default": "auto",
+   "type": "typing.Literal['auto', 'float32', 'float16']"
+  },
+  "master_addr": {
+   "default": "127.0.0.1",
+   "type": "<class 'str'>"
+  },
+  "master_port": {
+   "default": 29501,
+   "type": "<class 'int'>"
+  },
+  "max_cpu_loras": {
+   "default": null,
+   "type": "int | None"
+  },
+  "max_cudagraph_capture_size": {
+   "default": null,
+   "type": "int | None"
+  },
+  "max_logprobs": {
+   "default": 20,
+   "type": "<class 'int'>"
+  },
+  "max_long_partial_prefills": {
+   "default": 1,
+   "type": "<class 'int'>"
+  },
+  "max_lora_rank": {
+   "default": 16,
+   "type": "typing.Literal[1, 8, 16, 32, 64, 128, 256, 320, 512]"
+  },
+  "max_loras": {
+   "default": 1,
+   "type": "<class 'int'>"
+  },
+  "max_model_len": {
+   "default": null,
+   "type": "<class 'int'>"
+  },
+  "max_num_batched_tokens": {
+   "default": null,
+   "type": "int | None"
+  },
+  "max_num_partial_prefills": {
+   "default": 1,
+   "type": "<class 'int'>"
+  },
+  "max_num_seqs": {
+   "default": null,
+   "type": "int | None"
+  },
+  "max_parallel_loading_workers": {
+   "default": null,
+   "type": "int | None"
+  },
+  "media_io_kwargs": {
+   "default": "<factory>",
+   "type": "dict[str, dict[str, typing.Any]]"
+  },
+  "mm_encoder_attn_backend": {
+   "default": null,
+   "type": "vllm.v1.attention.backends.registry.AttentionBackendEnum | str | None"
+  },
+  "mm_encoder_only": {
+   "default": false,
+   "type": "<class 'bool'>"
+  },
+  "mm_encoder_tp_mode": {
+   "default": "weights",
+   "type": "typing.Literal['weights', 'data']"
+  },
+  "mm_processor_cache_gb": {
+   "default": 4,
+   "type": "<class 'float'>"
+  },
+  "mm_processor_cache_type": {
+   "default": "lru",
+   "type": "typing.Optional[typing.Literal['shm', 'lru']]"
+  },
+  "mm_processor_kwargs": {
+   "default": null,
+   "type": "dict[str, typing.Any] | None"
+  },
+  "mm_shm_cache_max_object_size_mb": {
+   "default": 128,
+   "type": "<class 'int'>"
+  },
+  "mm_tensor_ipc": {
+   "default": "direct_rpc",
+   "type": "typing.Literal['direct_rpc', 'torch_shm']"
+  },
+  "model": {
+   "default": "Qwen/Qwen3-0.6B",
+   "type": "<class 'str'>"
+  },
+  "model_impl": {
+   "default": "auto",
+   "type": "<class 'str'>"
+  },
+  "model_loader_extra_config": {
+   "default": "<factory>",
+   "type": "<class 'dict'>"
+  },
+  "model_weights": {
+   "default": "",
+   "type": "<class 'str'>"
+  },
+  "moe_backend": {
+   "default": "auto",
+   "type": "typing.Literal['auto', 'triton', 'deep_gemm', 'cutlass', 'flashinfer_trtllm', 'flashinfer_cutlass', 'flashinfer_cutedsl', 'marlin', 'aiter']"
+  },
+  "nnodes": {
+   "default": 1,
+   "type": "<class 'int'>"
+  },
+  "node_rank": {
+   "default": 0,
+   "type": "<class 'int'>"
+  },
+  "num_gpu_blocks_override": {
+   "default": null,
+   "type": "int | None"
+  },
+  "offload_backend": {
+   "default": "auto",
+   "type": "<class 'str'>"
+  },
+  "offload_group_size": {
+   "default": 0,
+   "type": "<class 'int'>"
+  },
+  "offload_num_in_group": {
+   "default": 1,
+   "type": "<class 'int'>"
+  },
+  "offload_params": {
+   "default": "<factory>",
+   "type": "set[str]"
+  },
+  "offload_prefetch_step": {
+   "default": 1,
+   "type": "<class 'int'>"
+  },
+  "optimization_level": {
+   "default": 2,
+   "type": "<enum 'OptimizationLevel'>"
+  },
+  "otlp_traces_endpoint": {
+   "default": null,
+   "type": "str | None"
+  },
+  "override_attention_dtype": {
+   "default": null,
+   "type": "str | None"
+  },
+  "override_generation_config": {
+   "default": "<factory>",
+   "type": "dict[str, typing.Any]"
+  },
+  "performance_mode": {
+   "default": "balanced",
+   "type": "typing.Literal['balanced', 'interactivity', 'throughput']"
+  },
+  "pipeline_parallel_size": {
+   "default": 1,
+   "type": "<class 'int'>"
+  },
+  "pooler_config": {
+   "default": null,
+   "type": "vllm.config.pooler.PoolerConfig | None"
+  },
+  "prefill_context_parallel_size": {
+   "default": 1,
+   "type": "<class 'int'>"
+  },
+  "prefix_caching_hash_algo": {
+   "default": "sha256",
+   "type": "typing.Literal['sha256', 'sha256_cbor', 'xxhash', 'xxhash_cbor']"
+  },
+  "profiler_config": {
+   "default": "<factory>",
+   "type": "<class 'vllm.config.profiler.ProfilerConfig'>"
+  },
+  "pt_load_map_location": {
+   "default": "cpu",
+   "type": "str | dict[str, str]"
+  },
+  "quantization": {
+   "default": null,
+   "type": "typing.Any | str | None"
+  },
+  "ray_workers_use_nsight": {
+   "default": false,
+   "type": "<class 'bool'>"
+  },
+  "reasoning_config": {
+   "default": null,
+   "type": "<class 'vllm.config.reasoning.ReasoningConfig'>"
+  },
+  "reasoning_parser": {
+   "default": "",
+   "type": "<class 'str'>"
+  },
+  "reasoning_parser_plugin": {
+   "default": null,
+   "type": "str | None"
+  },
+  "renderer_num_workers": {
+   "default": 1,
+   "type": "<class 'int'>"
+  },
+  "revision": {
+   "default": null,
+   "type": "str | None"
+  },
+  "runner": {
+   "default": "auto",
+   "type": "typing.Literal['auto', 'generate', 'pooling', 'draft']"
+  },
+  "safetensors_load_strategy": {
+   "default": null,
+   "type": "str | None"
+  },
+  "scheduler_cls": {
+   "default": null,
+   "type": "str | type[object] | None"
+  },
+  "scheduler_reserve_full_isl": {
+   "default": true,
+   "type": "<class 'bool'>"
+  },
+  "scheduling_policy": {
+   "default": "fcfs",
+   "type": "typing.Literal['fcfs', 'priority']"
+  },
+  "seed": {
+   "default": 0,
+   "type": "<class 'int'>"
+  },
+  "served_model_name": {
+   "default": null,
+   "type": "str | list[str] | None"
+  },
+  "show_hidden_metrics_for_version": {
+   "default": null,
+   "type": "str | None"
+  },
+  "shutdown_timeout": {
+   "default": 0,
+   "type": "<class 'int'>"
+  },
+  "skip_mm_profiling": {
+   "default": false,
+   "type": "<class 'bool'>"
+  },
+  "skip_tokenizer_init": {
+   "default": false,
+   "type": "<class 'bool'>"
+  },
+  "specialize_active_lora": {
+   "default": false,
+   "type": "<class 'bool'>"
+  },
+  "speculative_config": {
+   "default": null,
+   "type": "dict[str, typing.Any] | None"
+  },
+  "stream_interval": {
+   "default": 1,
+   "type": "<class 'int'>"
+  },
+  "structured_outputs_config": {
+   "default": "<factory>",
+   "type": "<class 'vllm.config.structured_outputs.StructuredOutputsConfig'>"
+  },
+  "tensor_parallel_size": {
+   "default": 1,
+   "type": "<class 'int'>"
+  },
+  "tokenizer": {
+   "default": null,
+   "type": "str | None"
+  },
+  "tokenizer_mode": {
+   "default": "auto",
+   "type": "typing.Union[typing.Literal['auto', 'hf', 'slow', 'mistral', 'deepseek_v32'], str]"
+  },
+  "tokenizer_revision": {
+   "default": null,
+   "type": "str | None"
+  },
+  "tokens_only": {
+   "default": false,
+   "type": "<class 'bool'>"
+  },
+  "trust_remote_code": {
+   "default": false,
+   "type": "<class 'bool'>"
+  },
+  "ubatch_size": {
+   "default": 0,
+   "type": "<class 'int'>"
+  },
+  "use_tqdm_on_load": {
+   "default": true,
+   "type": "<class 'bool'>"
+  },
+  "video_pruning_rate": {
+   "default": null,
+   "type": "float | None"
+  },
+  "weight_transfer_config": {
+   "default": null,
+   "type": "vllm.config.weight_transfer.WeightTransferConfig | None"
+  },
+  "worker_cls": {
+   "default": "auto",
+   "type": "<class 'str'>"
+  },
+  "worker_extension_cls": {
+   "default": "",
+   "type": "<class 'str'>"
+  }
+ },
+ "vllm_version": "0.19.1"
+}
