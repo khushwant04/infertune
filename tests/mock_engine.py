@@ -24,6 +24,8 @@ class MockEngine:
         fail_above_concurrency: return HTTP 503 when more than this many requests are in
             flight, to exercise the harness's error-rate handling.
         status: force a status code for every request.
+        reported_prompt_tokens: value to report in the usage chunk when the client asks for
+            usage. Chosen by the test to be distinguishable from the client's own estimate.
     """
 
     def __init__(
@@ -33,11 +35,13 @@ class MockEngine:
         tpot_s: float = 0.005,
         fail_above_concurrency: int | None = None,
         status: int = 200,
+        reported_prompt_tokens: int = 4242,
     ) -> None:
         self.ttft_s = ttft_s
         self.tpot_s = tpot_s
         self.fail_above_concurrency = fail_above_concurrency
         self.status = status
+        self.reported_prompt_tokens = reported_prompt_tokens
         self.requests: list[dict[str, Any]] = []
         self.max_observed_concurrency = 0
         self._in_flight = 0
@@ -106,6 +110,23 @@ class MockEngine:
                             time.sleep(engine.tpot_s)
                         chunk = json.dumps({"choices": [{"text": f" t{i}", "index": 0}]}).encode()
                         frame = b"data: " + chunk + b"\n\n"
+                        self.wfile.write(f"{len(frame):X}\r\n".encode() + frame + b"\r\n")
+                        self.wfile.flush()
+                    if (payload.get("stream_options") or {}).get("include_usage"):
+                        # Real engines send a final chunk with no choices, carrying exact
+                        # token accounting. The value is deliberately not derivable from
+                        # the request so tests can prove the client reads it.
+                        usage = json.dumps(
+                            {
+                                "choices": [],
+                                "usage": {
+                                    "prompt_tokens": engine.reported_prompt_tokens,
+                                    "completion_tokens": n,
+                                    "total_tokens": engine.reported_prompt_tokens + n,
+                                },
+                            }
+                        ).encode()
+                        frame = b"data: " + usage + b"\n\n"
                         self.wfile.write(f"{len(frame):X}\r\n".encode() + frame + b"\r\n")
                         self.wfile.flush()
                     done = b"data: [DONE]\n\n"

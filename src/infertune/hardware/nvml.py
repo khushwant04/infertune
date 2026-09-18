@@ -34,6 +34,83 @@ class NVMLUnavailableError(RuntimeError):
     """Raised when NVML cannot be loaded or no device is visible."""
 
 
+def _pcie_generation_link(generation: int) -> Interconnect:
+    if generation >= 5:
+        return Interconnect.PCIE_GEN5_X16
+    if generation == 4:
+        return Interconnect.PCIE_GEN4_X16
+    return Interconnect.PCIE_GEN3_X16
+
+
+_NVLINK_BY_VERSION = {
+    2: Interconnect.NVLINK_3,
+    3: Interconnect.NVLINK_3,
+    4: Interconnect.NVLINK_4,
+}
+
+
+def _detect_interconnect(pynvml: Any, handle: Any) -> tuple[Interconnect, list[str]]:
+    """Determine the inter-GPU link from the live device.
+
+    This must be measured rather than inherited from the spec database: a spec entry
+    describes a *device*, and the same device ships in NVLink-bridged and
+    PCIe-only machines. Reading it off the spec entry is what previously made
+    discovery fail outright on multi-GPU hosts.
+    """
+    notes: list[str] = []
+
+    active = 0
+    version = 0
+    for link in range(18):
+        try:
+            state = pynvml.nvmlDeviceGetNvLinkState(handle, link)
+        except Exception:  # unsupported link index, or no NVLink on this device at all
+            break
+        if not state:
+            continue
+        active += 1
+        with contextlib.suppress(Exception):
+            version = max(version, int(pynvml.nvmlDeviceGetNvLinkVersion(handle, link)))
+    if active:
+        link_type = _NVLINK_BY_VERSION.get(version, Interconnect.NVLINK_5)
+        notes.append(f"{active} active NVLink(s), version {version or 'unknown'}")
+        return link_type, notes
+
+    generation = 0
+    with contextlib.suppress(Exception):
+        generation = int(pynvml.nvmlDeviceGetMaxPcieLinkGeneration(handle))
+    if not generation:
+        notes.append(
+            "could not read the PCIe link generation; assuming gen3 x16, which is the "
+            "pessimistic case for tensor parallelism"
+        )
+    return _pcie_generation_link(generation or 3), notes
+
+
+def _peer_access_note(pynvml: Any, handle: Any, index: int, visible: int) -> str | None:
+    """Warn when peer-to-peer is unavailable between devices.
+
+    Without P2P, every all-reduce is staged through host memory, so the effective
+    tensor-parallel cost is worse than the raw link bandwidth suggests. Virtualised GPUs
+    commonly disable it, and nothing else in the stack would reveal that.
+    """
+    peer_index = 1 if index == 0 else 0
+    if peer_index >= visible:
+        return None
+    try:
+        peer = pynvml.nvmlDeviceGetHandleByIndex(peer_index)
+        status = pynvml.nvmlDeviceGetP2PStatus(handle, peer, pynvml.NVML_P2P_CAPS_INDEX_READ)
+    except Exception:
+        return None
+    if int(status) == int(pynvml.NVML_P2P_STATUS_OK):
+        return None
+    return (
+        "peer-to-peer access between GPUs is NOT available, so tensor-parallel "
+        "all-reduces are staged through host memory. Treat the interconnect term as an "
+        "upper bound on performance."
+    )
+
+
 def _import_nvml() -> Any:
     try:
         import pynvml
@@ -73,6 +150,14 @@ def discover(index: int = 0, *, count: int | None = None) -> GPUProfile:
         memory = pynvml.nvmlDeviceGetMemoryInfo(handle)
         major, minor = pynvml.nvmlDeviceGetCudaComputeCapability(handle)
         sm_count = int(pynvml.nvmlDeviceGetNumGpuCores(handle) or 0) or None
+
+        effective_count = count if count is not None else visible
+        detected_link = Interconnect.NONE
+        link_notes: list[str] = []
+        peer_note: str | None = None
+        if effective_count > 1:
+            detected_link, link_notes = _detect_interconnect(pynvml, handle)
+            peer_note = _peer_access_note(pynvml, handle, index, visible)
     finally:
         with contextlib.suppress(Exception):  # best effort; shutdown must not mask errors
             pynvml.nvmlShutdown()
@@ -84,14 +169,12 @@ def discover(index: int = 0, *, count: int | None = None) -> GPUProfile:
 
     notes: list[str] = []
     flops: dict[str, float] = {}
-    interconnect = Interconnect.NONE
     resolved_sm = sm_count or 0
 
     try:
         reference = specdb.load(str(name))
         flops = dict(reference.dense_flops)
         bandwidth = reference.mem_bandwidth_bytes_s
-        interconnect = reference.interconnect
         resolved_sm = resolved_sm or reference.sm_count
     except (specdb.UnknownGPUError, RuntimeError):
         flops = dict(_FALLBACK_FLOPS.get(int(major), {"bf16": 100e12}))
@@ -109,6 +192,10 @@ def discover(index: int = 0, *, count: int | None = None) -> GPUProfile:
             "already accounts for the driver reservation and any co-tenant allocations"
         )
 
+    notes.extend(link_notes)
+    if peer_note is not None:
+        notes.append(peer_note)
+
     return GPUProfile(
         name=str(name),
         vram_bytes=total,
@@ -117,8 +204,8 @@ def discover(index: int = 0, *, count: int | None = None) -> GPUProfile:
         sm_count=resolved_sm,
         mem_bandwidth_bytes_s=bandwidth,
         dense_flops=flops,
-        count=count if count is not None else visible,
-        interconnect=interconnect if (count or visible) > 1 else Interconnect.NONE,
+        count=effective_count,
+        interconnect=detected_link,
         source="nvml",
         notes=tuple(notes),
     )

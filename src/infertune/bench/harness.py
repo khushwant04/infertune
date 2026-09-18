@@ -38,6 +38,11 @@ class SweepConfig:
 
     max_error_rate: float = 0.10
 
+    context_limit: int | None = None
+    """The engine's ``max_model_len``. Sampled request lengths are truncated to fit inside it;
+    without this the distribution's tail is rejected by the engine and the error rate aborts
+    the sweep."""
+
     def __post_init__(self) -> None:
         if not self.concurrencies:
             raise ValueError("concurrencies must be non-empty")
@@ -80,6 +85,7 @@ def sweep_concurrency(
             n_requests=max(config.requests_per_point, concurrency),
             seed=config.seed + index,
             warmup_requests=config.warmup_requests if index == 0 else 0,
+            context_limit=config.context_limit,
         )
         points.append(point)
         if on_point is not None:
