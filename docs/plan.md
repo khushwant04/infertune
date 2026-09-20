@@ -442,10 +442,13 @@ the single most useful number in the whole system, because it tells you whether 
 concurrency buys throughput (below `B*`: nearly free) or only buys latency (above `B*`).
 It should be printed in every report.
 
-**Calibration.** `MFU` and `MBU` start as per-architecture priors and are refined per
-`(gpu, model_arch_class, framework_version)` from the measurement store, as a small
-multiplicative correction on physically-derived features. Predictions are reported as intervals
-whose width reflects how much calibration data exists — no data, wide interval, stated as such.
+**Calibration.** `MFU` and `MBU` start as per-architecture priors. The calibration library can
+refine them per `(gpu, model_arch_class, framework_version)` from comparable stored measurements,
+as a small multiplicative correction on physically-derived features. That fitter is tested
+against synthetic data, but the CLI does not yet feed its output back into `tune`; completing
+benchmark provenance and that connection remains implementation work. Predictions should be
+reported as intervals whose width reflects how much calibration data exists — no data, wide
+interval, stated as such.
 Also worth harvesting: vLLM logs the exact `--kv-cache-memory` value reproducing its own
 allocation, which is a direct ground-truth label for the memory model, obtainable from any
 single boot with no benchmarking at all.
@@ -502,23 +505,24 @@ capability matrix. That's the acceptance test for the abstraction.
 
 ## 8. Search
 
+The first two steps are the currently implemented `tune` dry-run. Steps 3–6 describe the target
+engine-backed workflow; the reusable search core models them through an injected
+boot-and-measure callback, but the CLI does not yet provide engine lifecycle management.
+
 ```
 1. Enumerate      parallelism × quant × kv_dtype × context   (small, discrete, structured)
 2. Analytic prune Drop infeasible (memory ledger) and dominated (roofline) candidates.
                   Typically 1000s → single digits. This is where the estimator earns its keep.
-3. Outer loop     For each surviving candidate: boot once. Harvest startup facts.
-4. Inner loop     Sweep client concurrency / rate without restarting.
+3. Outer loop     For each surviving candidate: boot once. Harvest startup facts. [target]
+4. Inner loop     Sweep client concurrency / rate without restarting.              [target]
                   → full throughput-vs-latency curve; find the SLA knee.
-5. Select         Pareto front over (throughput, p99 latency); pick by the user's objective.
-6. Record         Persist every measurement; update calibration coefficients.
+5. Select         Pareto front over (throughput, p99 latency); pick by objective.   [target]
+6. Record         Persist measurements; update calibration coefficients.           [target]
 ```
 
-Bayesian optimization arrives in M4, and only over the *continuous* knobs that survive step 2,
-with the constraint handled properly (constrained EI, or a feasibility classifier — an OOM is a
-crashed trial, not a bad score, and treating it as a large penalty teaches the optimizer the
-wrong shape). Structure exploitation comes first: throughput is roughly monotone-then-flat in
-the token budget and roughly unimodal in concurrency, so coordinate ascent with early stopping
-beats generic BO at these sample sizes.
+Bayesian optimization over surviving continuous knobs is deliberately not implemented. Analytic
+pruning plus Pareto filtering met the synthetic search criterion without it; adding BO is better
+justified after real calibration data shows a remaining search-quality gap.
 
 ---
 
@@ -538,7 +542,7 @@ load-bearing: `AttentionSpec.kv_bytes_per_token` with TP head-replication handli
 (`infertune kv`, `infertune working-set`) so the arithmetic can be checked by hand.
 
 **M1 — Analyzer + Estimator (1.5 wk). ✅ Done.** HF config parsing; safetensors-header weight
-measurement; per-architecture cache models; overhead terms; GPU spec DB (15 GPUs) + NVML path;
+measurement; per-architecture cache models; overhead terms; GPU spec DB (16 GPUs) + NVML path;
 the ledger.
 *Accept:* weight bytes within ±1% across 20 checkpoints — **achieved 0.0000% (byte-exact) on
 20/20**, spanning dense, MoE, MLA, Mamba-hybrid, interleaved-attention, AWQ, mxfp4, fp8
@@ -622,8 +626,9 @@ Two modelling notes worth recording, both of which change reported numbers:
 * **Output throughput excludes prompt tokens.** Counting both inflates the figure by the
   input/output ratio, which is the usual reason published throughput numbers are incomparable.
 
-**M4 — SGLang adapter + search (2 wk). ✅ Done (search validated synthetically).** Second
-adapter, engine registry, analytic prune, Pareto selection, outer/inner loops, `infertune tune`.
+**M4 — SGLang adapter + search (2 wk). 🟡 Search core and dry-run implemented; runtime
+integration pending.** Second adapter, engine registry, analytic prune, Pareto selection,
+injected outer/inner-loop orchestration, and `infertune tune` dry-run.
 
 *Accept:*
 
@@ -632,9 +637,10 @@ adapter, engine registry, analytic prune, Pareto selection, outer/inner loops, `
   only change outside `adapters/` attributable to SGLang is a one-line mypy stub-ignore in
   `pyproject.toml` for an optional import — build configuration, not logic. (`cli.py` also
   changed, but for the `tune` command, which is the search feature rather than SGLang support.)
-* **Within 10% of a grid search on ≤12 boots** ✅ — measured **0.00% gap using 5 boots against
-  30**, i.e. the pruned search selected the *identical* configuration the exhaustive baseline
-  did, 6× cheaper.
+* **Within 10% of a synthetic grid search on ≤12 simulated boots** ✅ — the deterministic
+  test reports a **0.00% gap using 5 callbacks against 30**, i.e. the pruned search selected the
+  *identical* configuration the exhaustive synthetic baseline did, 6× cheaper. This validates
+  pruning quality; it is not evidence that real engine execution works.
 
 Validated against a synthetic objective rather than hardware, deliberately: search quality is a
 property of the algorithm, not of any particular GPU, so it needs a known ground truth. The
@@ -665,9 +671,9 @@ Also worth recording: **SGLang moved its entire argument surface** into
 second engine independently confirming §2.3.
 
 **Not done:** Bayesian optimisation over the surviving continuous knobs. Analytic pruning plus
-Pareto selection already hits the acceptance target exactly, so BO would add machinery without
-evidence that it is needed — better justified once M3's calibration is fitted on real
-measurements and the prediction error is known.
+Pareto selection already hits the synthetic algorithmic acceptance target exactly, so BO would
+add machinery without evidence that it is needed — better justified once M3's calibration is
+fitted on real measurements and the prediction error is known.
 
 **Deferred, deliberately:** multi-node, disaggregated prefill/decode, speculative decoding,
 LoRA, MIG, non-NVIDIA. Each is a real dimension; none belongs in an MVP.
@@ -692,8 +698,10 @@ CPU, which is what §2.5 buys:
 - **Public-number validation.** Cross-check predictions against published benchmark numbers for
   well-documented (model, GPU, engine) triples before we ever touch hardware.
 
-GPU-only work is confined to M2/M3 acceptance and can be batched onto rented time in short,
-scripted sessions. Everything up to that point is CPU work.
+CPU-only tests cover the analytical core, adapters through recorded fixtures, and search through
+injected synthetic measurements. GPU work covers M2/M3 acceptance plus deferred M4 runtime
+validation. Before that M4 session, engine launch/cleanup and calibration wiring are still
+software prerequisites that must be implemented and tested on CPU.
 
 ---
 

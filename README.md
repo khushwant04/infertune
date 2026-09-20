@@ -88,7 +88,7 @@ and [validates the arithmetic against real engines](docs/status.md).
 |---|---|---|
 | `plan` | no | Size a configuration for hardware you do not have in hand. |
 | `profile` | yes | Same, on detected hardware, using the installed engine's own flags. |
-| `tune` | opt-in | Search the configuration space under an SLA. Dry-run by default. |
+| `tune` | no | Rank candidates analytically. Dry-run only; `--execute` fails clearly until engine lifecycle support exists. |
 | `benchmark` | yes | Sweep concurrency against a running engine and record the curve. |
 | `kv` | no | KV cache cost per token for a model. |
 | `working-set` | no | Aggregate in-flight KV tokens for a workload. |
@@ -109,12 +109,13 @@ enumerated 15 -> 5 to boot (3x fewer)
 4  tp=1 len=4096 seqs=32 kv=bf16      36,597         660      280ms        25
 5  tp=1 len=4096 seqs=16 kv=bf16      37,328         378      280ms        26
 
-dry run: would boot 5 configurations and sweep concurrency on each. Re-run with --execute on a
-GPU host to measure.
+dry run: would boot 5 configurations and sweep concurrency on each. Engine execution is not
+implemented yet; `--execute` exits with a clear error instead of pretending to measure.
 ```
 
-Held against an exhaustive grid on real hardware — a separate 30-candidate space — this strategy
-selected the same winner after **5 boots instead of 30**, with a **0.00%** throughput gap.
+Against a separate 30-candidate **synthetic** objective with a known ground truth, this strategy
+selected the same winner after **5 simulated boots instead of 30**, with a **0.00%** throughput
+gap. This validates the pruning algorithm, not real engine execution.
 
 ## Design commitments
 
@@ -184,12 +185,13 @@ non-NVIDIA hardware.
 
 ## Status
 
-Milestones M0–M4 are implemented, and four of the five acceptance criteria have been met against
-real hardware. The memory ledger is validated against running vLLM to **3.61%** worst case, and the
-search matches an exhaustive grid exactly.
+Milestones M0–M4 have implementation work in the repository, but their evidence is not all the
+same. M2's memory ledger was validated against running vLLM on an A10 to **3.61%** worst case.
+M3's throughput criterion remains unmeasured. M4's pruning strategy matched an exhaustive
+**synthetic** grid exactly; real SGLang validation and engine-backed `tune --execute` remain
+outstanding. Until engine lifecycle support exists, `--execute` fails explicitly.
 
-Two gaps stated plainly: M3's throughput-prediction accuracy (±20%) is **not yet measured**, and
-**fp8 paths are unvalidated** — they require sm_89 and the A10 used for validation is sm_86.
+FP8 paths are also unvalidated: they require sm_89, while the A10 used for validation is sm_86.
 
 Full breakdown, measured numbers and remaining work: [`docs/status.md`](docs/status.md).
 
@@ -201,7 +203,7 @@ pip install -e ".[dev]"
 ruff check src tests scripts
 ruff format --check src tests scripts
 mypy src tests scripts
-pytest                              # 417 passed, 23 skipped
+pytest                              # default CPU-only suite
 ```
 
 The default suite needs no GPU, no model download and no serving engine. Network-dependent tests

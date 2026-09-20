@@ -115,8 +115,24 @@ def test_tune_declares_expected_options() -> None:
     from infertune.cli import tune
 
     declared = _declared_option_names(tune)
-    for option in ("--model", "--gpu", "--boots", "--engine", "--ttft-p99-ms"):
+    for option in (
+        "--model",
+        "--gpu",
+        "--boots",
+        "--engine",
+        "--ttft-p99-ms",
+        "--dry-run/--execute",
+    ):
         assert option in declared, f"{option} missing; found {sorted(declared)}"
+
+
+def test_tune_execute_fails_before_doing_any_work() -> None:
+    """An unavailable execution path must never report a silent success."""
+    result = runner.invoke(app, ["tune", "--model", "unused", "--execute"])
+    assert result.exit_code == 2
+    assert "not implemented" in result.stdout
+    assert "no engine was started" in result.stdout
+    assert "dry run" not in result.stdout
 
 
 def test_tune_dry_run_needs_no_gpu_and_no_engine() -> None:
