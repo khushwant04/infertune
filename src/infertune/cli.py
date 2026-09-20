@@ -593,18 +593,25 @@ def tune(
     output_median: float = typer.Option(256, "--output-median", help="Median output tokens."),
     output_p95: float = typer.Option(512, "--output-p95", help="p95 output tokens."),
     dry_run: bool = typer.Option(
-        True, "--dry-run/--execute", help="Plan the search without booting anything."
+        True,
+        "--dry-run/--execute",
+        help="Plan the search; execute mode is not implemented yet.",
     ),
 ) -> None:
     """Search the configuration space under an SLA.
 
-    Boots are the expensive resource, so the space is enumerated freely, pruned analytically to
-    the Pareto frontier, and only the survivors are launched (docs/plan.md §2.4, §8).
-
-    ``--dry-run`` (the default) performs the free part only: it enumerates, prunes, and shows
-    which configurations *would* be booted and why. Executing the search needs a GPU and a
-    serving engine, so it is opt-in rather than a surprise.
+    The implemented dry-run enumerates the restart-required space, prunes it analytically to
+    the Pareto frontier, and reports which candidates a future execution path should launch.
+    Engine lifecycle management is not implemented, so ``--execute`` fails explicitly rather
+    than returning success without taking measurements.
     """
+    if not dry_run:
+        console.print(
+            "[red]error:[/red] tune --execute is not implemented; "
+            "no engine was started and no measurements were taken."
+        )
+        raise typer.Exit(code=2)
+
     from .adapters import UnknownEngineError, get_adapter
     from .core.workload import SLA
     from .hardware import nvml, specdb
@@ -688,7 +695,7 @@ def tune(
         console.print()
         console.print(
             f"[yellow]dry run[/yellow]: would boot {len(report.survivors)} configurations "
-            f"and sweep concurrency on each. Re-run with --execute on a GPU host to measure."
+            "and sweep concurrency on each. Engine execution is not implemented yet."
         )
 
 
