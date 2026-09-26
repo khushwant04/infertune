@@ -26,12 +26,12 @@ import json
 import subprocess
 import sys
 import tempfile
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 
 from infertune.adapters import VLLMAdapter
 from infertune.core import LogNormal, WorkloadProfile, fmt_bytes, fmt_tokens
-from infertune.core.gpu import GPUProfile
+from infertune.core.gpu import GPUProfile, Interconnect
 from infertune.core.plan import Parallelism
 from infertune.estimator import InfeasibleConfigurationError, estimate_plan
 from infertune.estimator.memory import (
@@ -55,6 +55,7 @@ class Result:
     ok: bool
     max_num_seqs: int
     max_model_len: int
+    tensor_parallel: int = 1
     total_bytes: int | None = None
     gpu_memory_utilization: float | None = None
     predicted_kv_bytes: int | None = None
@@ -111,23 +112,32 @@ def _pct(value: float | None) -> str:
     return f"{value:.2f}%" if value is not None else "-"
 
 
-def resolve_gpu(key: str | None) -> GPUProfile:
-    """Prefer a live measurement; fall back to the spec database."""
+def resolve_gpu(key: str | None, *, count: int = 1) -> GPUProfile:
+    """Prefer a live measurement; fall back to the spec database.
+
+    ``count`` must match the tensor-parallel size, or the estimator refuses the plan.
+    The spec database describes one device, so a multi-GPU profile assembled from it also
+    needs an interconnect; PCIe gen4 is assumed, being the pessimistic realistic case.
+    """
     if key is None:
         try:
-            gpu = nvml.discover()
+            gpu = nvml.discover(count=count)
             print(
-                f"GPU (NVML)   : {gpu.name}  {fmt_bytes(gpu.vram_bytes)} total, "
-                f"{fmt_bytes(gpu.vram_usable_bytes)} usable"
+                f"GPU (NVML)   : {gpu.name} x{gpu.count}  {fmt_bytes(gpu.vram_bytes)} total, "
+                f"{fmt_bytes(gpu.vram_usable_bytes)} usable, link {gpu.interconnect}"
             )
+            for note in gpu.notes:
+                print(f"  note: {note}")
             return gpu
         except Exception as exc:
             print(f"NVML unavailable ({exc}); falling back to the spec database")
             key = "a10"
     gpu = specdb.load(key)
+    if count > 1:
+        gpu = replace(gpu, count=count, interconnect=Interconnect.PCIE_GEN4_X16)
     print(
-        f"GPU (specdb) : {gpu.name}  {fmt_bytes(gpu.vram_bytes)} total, "
-        f"{fmt_bytes(gpu.vram_usable_bytes)} usable"
+        f"GPU (specdb) : {gpu.name} x{gpu.count}  {fmt_bytes(gpu.vram_bytes)} total, "
+        f"{fmt_bytes(gpu.vram_usable_bytes)} usable, link {gpu.interconnect}"
     )
     return gpu
 
@@ -168,8 +178,16 @@ def validate_one(
     max_num_seqs: int,
     max_model_len: int,
     timeout: int,
+    tensor_parallel: int = 1,
 ) -> Result:
-    res = Result(model=model, ok=False, max_num_seqs=max_num_seqs, max_model_len=max_model_len)
+    res = Result(
+        model=model,
+        ok=False,
+        max_num_seqs=max_num_seqs,
+        max_model_len=max_model_len,
+        tensor_parallel=tensor_parallel,
+    )
+    parallelism = Parallelism(tensor=tensor_parallel)
     try:
         profile = analyze(model)
     except ModelMetadataError as exc:
@@ -183,6 +201,7 @@ def validate_one(
             workload,
             max_num_seqs=max_num_seqs,
             max_model_len=max_model_len,
+            parallelism=parallelism,
             samples=2000,
         )
     except (InfeasibleConfigurationError, ValueError) as exc:
@@ -223,7 +242,7 @@ def validate_one(
             profile,
             max_num_seqs=max_num_seqs,
             max_num_batched_tokens=min(max_model_len, 8192),
-            parallelism=Parallelism(),
+            parallelism=parallelism,
         )
         res.predicted_kv_bytes = predict_kv_for_utilization(
             plan,
@@ -255,14 +274,21 @@ def main() -> int:
     ap.add_argument("--gpu", default=None, help="specdb key; omit to use NVML")
     ap.add_argument("--max-num-seqs", type=int, default=32)
     ap.add_argument("--max-model-len", type=int, default=8192)
+    ap.add_argument(
+        "--tp",
+        type=int,
+        default=1,
+        help="tensor parallel size; >1 shards weights and tests the TP overhead terms",
+    )
     ap.add_argument("--timeout", type=int, default=1800)
     ap.add_argument("--json", default=None, help="write raw results here")
     args = ap.parse_args()
 
-    gpu = resolve_gpu(args.gpu)
+    gpu = resolve_gpu(args.gpu, count=args.tp)
     adapter = VLLMAdapter()
     caps = adapter.capabilities()
     print(f"engine       : vllm {caps.version}  (absolute KV lever: {caps.absolute_kv_budget})")
+    print(f"parallelism  : tp={args.tp}")
     workload = WorkloadProfile(
         input_tokens=LogNormal.from_median_p95(1024, 2048),
         output_tokens=LogNormal.from_median_p95(256, 512),
@@ -279,6 +305,7 @@ def main() -> int:
             max_num_seqs=args.max_num_seqs,
             max_model_len=args.max_model_len,
             timeout=args.timeout,
+            tensor_parallel=args.tp,
         )
         results.append(r)
         if r.ok:

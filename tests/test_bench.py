@@ -270,3 +270,116 @@ class TestSweep:
             SweepConfig(concurrencies=(0,))
         with pytest.raises(ValueError, match="max_error_rate"):
             SweepConfig(max_error_rate=1.5)
+
+
+class TestContextClamping:
+    """Sampled request lengths must fit the engine's context window.
+
+    A workload distribution knows nothing about ``max_model_len``. Its tail routinely exceeds
+    the window, and engines reject those requests outright rather than truncating them, so an
+    unclamped sweep aborts on error rate and the fault looks like engine instability.
+    """
+
+    def test_prompt_and_output_fit_within_the_limit(self) -> None:
+        limit = 512
+        with MockEngine(ttft_s=0.001, tpot_s=0.0) as engine:
+            run_at_concurrency(
+                EndpointConfig(base_url=engine.base_url),
+                WorkloadProfile(
+                    input_tokens=Constant(100_000),
+                    output_tokens=Constant(100_000),
+                ),
+                1,
+                n_requests=4,
+                context_limit=limit,
+            )
+            assert engine.requests, "no requests reached the engine"
+            for payload in engine.requests:
+                prompt_words = len(str(payload["prompt"]).split())
+                assert prompt_words + int(payload["max_tokens"]) <= limit
+
+    def test_output_length_is_preserved_in_preference_to_the_prompt(self) -> None:
+        """Trimming the output first would bias the decode measurement itself."""
+        with MockEngine(ttft_s=0.001, tpot_s=0.0) as engine:
+            run_at_concurrency(
+                EndpointConfig(base_url=engine.base_url),
+                WorkloadProfile(input_tokens=Constant(100_000), output_tokens=Constant(64)),
+                1,
+                n_requests=2,
+                context_limit=1024,
+            )
+            for payload in engine.requests:
+                assert int(payload["max_tokens"]) == 64
+
+    def test_unset_limit_leaves_lengths_untouched(self) -> None:
+        with MockEngine(ttft_s=0.001, tpot_s=0.0) as engine:
+            run_at_concurrency(
+                EndpointConfig(base_url=engine.base_url),
+                WorkloadProfile(input_tokens=Constant(40), output_tokens=Constant(7)),
+                1,
+                n_requests=2,
+            )
+            for payload in engine.requests:
+                assert int(payload["max_tokens"]) == 7
+                assert len(str(payload["prompt"]).split()) == 40
+
+    def test_sweep_threads_the_limit_through(self) -> None:
+        with MockEngine(ttft_s=0.001, tpot_s=0.0) as engine:
+            sweep_concurrency(
+                EndpointConfig(base_url=engine.base_url),
+                WorkloadProfile(input_tokens=Constant(9_999), output_tokens=Constant(9_999)),
+                SweepConfig(
+                    concurrencies=(1, 2),
+                    requests_per_point=2,
+                    context_limit=256,
+                    stop_on_saturation=False,
+                ),
+            )
+            assert engine.requests
+            for payload in engine.requests:
+                assert len(str(payload["prompt"]).split()) + int(payload["max_tokens"]) <= 256
+
+    def test_rejects_an_impossible_limit(self) -> None:
+        with pytest.raises(ValueError, match="context_limit"):
+            run_at_concurrency(
+                EndpointConfig(base_url="http://127.0.0.1:1"),
+                WorkloadProfile(input_tokens=Constant(8), output_tokens=Constant(8)),
+                1,
+                n_requests=1,
+                context_limit=1,
+            )
+
+
+class TestReportedTokenCounts:
+    """Token counts come from the server, not from the client's own guess.
+
+    The client can only approximate how many tokens its prompt string will become. Feeding
+    that approximation into calibration would misstate the KV volume read per decode step,
+    which is exactly the quantity the bandwidth fit is derived from.
+    """
+
+    def test_prompt_tokens_come_from_the_usage_chunk(self) -> None:
+        with MockEngine(ttft_s=0.001, tpot_s=0.0, reported_prompt_tokens=1234) as engine:
+            result = run_at_concurrency(
+                EndpointConfig(base_url=engine.base_url),
+                WorkloadProfile(input_tokens=Constant(10), output_tokens=Constant(3)),
+                1,
+                n_requests=1,
+            )
+        record = result.successful[0]
+        assert record.prompt_tokens == 1234, "client estimate (10) was used instead of usage"
+
+    def test_usage_is_requested(self) -> None:
+        with MockEngine(ttft_s=0.001, tpot_s=0.0) as engine:
+            run_at_concurrency(
+                EndpointConfig(base_url=engine.base_url),
+                WorkloadProfile(input_tokens=Constant(5), output_tokens=Constant(2)),
+                1,
+                n_requests=1,
+            )
+        assert engine.requests[0]["stream_options"] == {"include_usage": True}
+
+    def test_falls_back_to_the_estimate_when_usage_is_absent(self) -> None:
+        """Not every OpenAI-compatible server implements usage on streamed responses."""
+        record = RequestRecord(prompt_tokens=77, output_tokens=5, ttft_s=0.1, total_s=0.5)
+        assert record.prompt_tokens == 77

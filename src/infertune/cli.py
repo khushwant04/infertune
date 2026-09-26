@@ -439,6 +439,11 @@ def benchmark(
         "1,2,4,8,16,32", "--concurrencies", help="Comma-separated ladder."
     ),
     requests_per_point: int = typer.Option(32, "--requests", help="Requests per point."),
+    max_model_len: int | None = typer.Option(
+        None,
+        "--max-model-len",
+        help="Context window the server was started with; request lengths are clamped to fit.",
+    ),
     input_median: float = typer.Option(1024, "--input-median", help="Median prompt tokens."),
     input_p95: float = typer.Option(2048, "--input-p95", help="p95 prompt tokens."),
     output_median: float = typer.Option(256, "--output-median", help="Median output tokens."),
@@ -463,7 +468,11 @@ def benchmark(
         ladder = tuple(sorted({int(x) for x in concurrencies.split(",") if x.strip()}))
         if not ladder:
             raise ValueError("empty ladder")
-        config = SweepConfig(concurrencies=ladder, requests_per_point=requests_per_point)
+        config = SweepConfig(
+            concurrencies=ladder,
+            requests_per_point=requests_per_point,
+            context_limit=max_model_len,
+        )
         workload = WorkloadProfile(
             input_tokens=LogNormal.from_median_p95(input_median, input_p95),
             output_tokens=LogNormal.from_median_p95(output_median, output_p95),
