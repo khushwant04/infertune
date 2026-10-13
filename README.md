@@ -22,6 +22,15 @@ cd infertune
 pip install -e .
 ```
 
+`profile` reads the local GPU through NVML; install it with the optional extra on a GPU host:
+
+```bash
+pip install -e ".[nvml]"
+```
+
+Model metadata is fetched from the Hugging Face Hub with the standard library (no
+`huggingface_hub` required). For gated models set `HF_TOKEN`; to use a mirror set `HF_ENDPOINT`.
+
 ## Quickstart
 
 `plan` needs no GPU and downloads no weights — model facts come from checkpoint metadata read over
@@ -93,6 +102,7 @@ and [validates the arithmetic against real engines](docs/status.md).
 | `kv` | no | KV cache cost per token for a model. |
 | `working-set` | no | Aggregate in-flight KV tokens for a workload. |
 | `gpus` | no | List GPUs known to the specification database. |
+| `version` | no | Print the InferTune version. |
 
 `tune` enumerates the space freely, prunes it analytically, and only then spends boots:
 
