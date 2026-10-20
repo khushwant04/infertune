@@ -1,0 +1,133 @@
+name: Release
+
+# On a version tag (v1.2.3, or v1.2.3-rc.1):
+#   1. check that the tag matches the package version, then build the sdist and wheel;
+#   2. publish them to PyPI with trusted publishing, once the PYPI_PUBLISH variable is "true";
+#   3. create the GitHub release: notes from CHANGELOG.md, the sdist and wheel attached.
+#      Tags below v1.0.0 and tags with a suffix (-rc.1) are pre-releases.
+#
+# One-time setup, only needed for PyPI:
+#   - set the repository variable PYPI_PUBLISH=true;
+#   - add a trusted publisher for `infertune` on PyPI (owner khushwant04, repo infertune,
+#     workflow release.yml, environment pypi);
+#   - create the `pypi` environment in the repository settings.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build sdist and wheel
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Check the package version matches the tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          pkg=$(python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['version'])")
+          mod=$(sed -n 's/^__version__ = "\(.*\)"$/\1/p' src/infertune/__init__.py)
+          status=0
+          if [ "$pkg" != "$tag" ]; then
+            echo "::error file=pyproject.toml::version $pkg does not match tag $GITHUB_REF_NAME"
+            status=1
+          fi
+          if [ "$mod" != "$tag" ]; then
+            echo "::error file=src/infertune/__init__.py::__version__ $mod does not match tag $GITHUB_REF_NAME"
+            status=1
+          fi
+          exit $status
+
+      - name: Build
+        run: uv build --out-dir dist
+
+      - name: Smoke-test the wheel
+        run: |
+          uv venv /tmp/smoke --python 3.11
+          uv pip install --python /tmp/smoke/bin/python dist/*.whl
+          /tmp/smoke/bin/infertune version
+          /tmp/smoke/bin/infertune gpus
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: python-dist
+          path: dist/
+          if-no-files-found: error
+
+  pypi:
+    name: Publish to PyPI
+    needs: build
+    if: vars.PYPI_PUBLISH == 'true' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: python-dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist/
+
+  github-release:
+    name: GitHub release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: python-dist
+          path: dist/
+      - name: Release notes from CHANGELOG.md
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          # The section between "## [<version>]" and the next "## [" heading.
+          awk -v v="$version" '
+            $0 ~ "^## \\[" v "\\]" { on = 1; next }
+            on && /^## \[/ { exit }
+            on && /^\[[^]]+\]: / { exit }
+            on { print }
+          ' CHANGELOG.md > notes.md
+          if [ ! -s notes.md ]; then
+            echo "::error file=CHANGELOG.md::no section for $version"
+            exit 1
+          fi
+          cat >> notes.md <<EOF
+
+          ### Install
+
+          \`\`\`bash
+          pip install infertune-${version}-py3-none-any.whl          # the wheel attached below
+          # or from source
+          pip install "git+https://github.com/${GITHUB_REPOSITORY}@${GITHUB_REF_NAME}"
+          \`\`\`
+          EOF
+          cat notes.md
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          prerelease=""
+          case "$GITHUB_REF_NAME" in v0.*|*-*) prerelease="--prerelease" ;; esac
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" dist/* --clobber
+            gh release edit "$GITHUB_REF_NAME" --notes-file notes.md $prerelease
+          else
+            gh release create "$GITHUB_REF_NAME" dist/* --title "InferTune $GITHUB_REF_NAME" --notes-file notes.md --verify-tag $prerelease
+          fi

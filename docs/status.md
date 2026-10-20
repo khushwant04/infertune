@@ -1,6 +1,6 @@
 # Project status
 
-Last updated: post-M4 implementation audit.
+Last updated: v0.1.0 (2026-10-20), after engine execution landed.
 
 This file is the authoritative record of what has been built, what has been *measured*, and what
 remains. The distinction matters: several things in this repo work locally but have not been held
@@ -17,7 +17,7 @@ Each milestone carries a falsifiable acceptance criterion fixed *before* the wor
 | **M1** | Model analyzer, per-architecture cache models, memory estimator, ledger, spec DB | weight bytes within **±1%** across 20 checkpoints | **0.0000%** — byte-exact on 20/20 | ✅ met |
 | **M2** | vLLM adapter with runtime introspection, `profile` | predicted vs engine-reported KV within **±5%** | **3.61%** worst case, 4/4 models booted | ✅ met |
 | **M3** | Roofline model, benchmark harness, SQLite store, calibration, `benchmark` | throughput prediction within **±20%** on held-out configs | **not measured** — needs sustained GPU load | 🟡 built, unverified |
-| **M4** | SGLang adapter, engine registry, configuration search, `tune` dry-run | within **10%** of exhaustive grid using **≤12** boots | **0.00% synthetic gap** using **5 simulated** boots vs the grid's 30 | 🟡 algorithm met; runtime pending |
+| **M4** | SGLang adapter, engine registry, configuration search, `tune` | within **10%** of exhaustive grid using **≤12** boots | **0.00% synthetic gap** using **5 simulated** boots vs the grid's 30; `--execute` built and tested against a fake engine process | 🟡 algorithm met; GPU run pending |
 
 M4 carried a second, structural criterion: adding a second engine must require **zero** changes
 outside `adapters/`. Measured on the merge diff — `core/`, `estimator/`, `bench/`, `store/`,
@@ -87,33 +87,38 @@ right source of truth, but the round-trip has only been tested against a recorde
 — the part that predicts when TP stops helping — is entirely untested. NVads A10 v5 has no NVLink,
 so a 2-GPU run over PCIe is the sharpest available test of exactly that term.
 
-**`tune --execute` is not implemented.** The dry-run path (enumerate, prune, rank) is exercised,
-and the reusable search core accepts an injected boot-and-measure callback. The CLI has no engine
-launcher, readiness/termination supervisor, or production callback. Until those exist,
-`--execute` exits with code 2 and states that no measurements were taken.
+**`tune --execute` has not run on a GPU.** The engine lifecycle (`infertune.runner`) launches each
+candidate in its own process group on a fresh port, captures its log, detects an engine that dies
+during startup without waiting out the readiness timeout, and stops the whole group so tensor-parallel
+workers cannot leak GPU memory into the next boot. A failed boot is recorded with its log tail and
+the search continues. All of this is tested end to end against `tests/fake_engine.py`, a real
+subprocess that replays a recorded vLLM startup log and serves the streaming API, but not yet
+against a real engine.
 
-**Stored measurements do not yet feed CLI predictions.** The SQLite store and calibration fitter
-work as library components and round-trip against synthetic data, but the CLI does not apply fitted
-coefficients to `tune`. Benchmark records also need stronger engine/GPU/TP provenance before they
-can safely drive candidate ranking.
+**Calibration is wired in but has no real data yet.** `tune` fits roofline coefficients per TP
+degree from stored runs that match the GPU, model, engine and engine version exactly, and uses
+them when scoring candidates. Runs stored with an `unknown` GPU or engine version are never used.
+Every run `tune --execute` records carries full provenance: the command, the flags, the engine's
+own KV figure, the per-point decode context MBU fitting needs, and the InferTune version.
+`benchmark` gained `--engine`, `--tp`, `--gpu` and `--kv-dtype` for the same reason. Until a GPU
+session populates the store, predictions use the prior coefficients.
+
+**Pruning is slow when KV headroom is large.** The headroom search samples the aggregate working
+set by Monte Carlo at every probed concurrency. A small model on an 80 GB GPU, or a very short
+workload, can take a minute or more to prune 30 candidates. Common random numbers would make it
+much cheaper, but that changes published figures slightly, so it is deferred.
 
 ## Remaining work
 
-Software prerequisites that can be completed without a GPU:
+The software prerequisites are done. One GPU session on a 2xA10 host completes the rest;
+[`gpu-runbook.md`](gpu-runbook.md) is the step-by-step plan:
 
-1. Add engine launch, readiness, log capture, cleanup, and failure handling behind the adapter
-   boundary; then connect that lifecycle to the search core and `tune --execute`.
-2. Persist complete benchmark provenance and connect version- and TP-matched calibration
-   coefficients to candidate scoring.
-
-After those prerequisites, one GPU session on a 2xA10 host can:
-
-3. Measure M3's ±20% throughput criterion against held-out configurations.
-4. Run tp=2 over PCIe. Check early whether vGPU has disabled P2P — if it has, the measurement
+1. Run `tune --execute` end to end and confirm the executed winner matches the dry-run ranking.
+2. Measure M3's ±20% throughput criterion against held-out configurations.
+3. Run tp=2 over PCIe. Check early whether vGPU has disabled P2P — if it has, the measurement
    still stands but the latency term is being tested under a pessimistic interconnect.
-5. Boot the SGLang adapter against a real install and diff its introspected schema against the
+4. Boot the SGLang adapter against a real install and diff its introspected schema against the
    fixture.
-6. Run `tune --execute` end to end and confirm the executed winner matches the dry-run ranking.
 
 Deliberately out of scope, and not planned: multi-node, disaggregated prefill/decode, speculative
 decoding, LoRA, MIG, non-NVIDIA hardware. Bayesian optimisation over the surviving candidates was

@@ -4,11 +4,28 @@ build-backend = "hatchling.build"
 
 [project]
 name = "infertune"
-version = "0.0.0"
-description = "GPU-aware inference configuration profiler"
+version = "0.1.0"
+description = "GPU-aware inference configuration profiler: size, tune and benchmark LLM serving before you rent the GPU."
 readme = "README.md"
 requires-python = ">=3.11"
-license = { text = "Apache-2.0" }
+authors = [{ name = "Khushwant Sanwalot" }]
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
+keywords = ["llm", "inference", "vllm", "sglang", "gpu", "kv-cache", "capacity-planning", "benchmark"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Environment :: GPU :: NVIDIA CUDA",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: System :: Benchmark",
+]
 
 # NOTE: infertune.core is deliberately stdlib-only; see tests/test_core_purity.py.
 # These dependencies exist for the CLI/reporting layers only.
@@ -28,6 +45,13 @@ dev = [
 
 [project.scripts]
 infertune = "infertune.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/khushwant04/infertune"
+Documentation = "https://github.com/khushwant04/infertune/tree/main/docs"
+Repository = "https://github.com/khushwant04/infertune"
+Issues = "https://github.com/khushwant04/infertune/issues"
+Changelog = "https://github.com/khushwant04/infertune/blob/main/CHANGELOG.md"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/infertune"]

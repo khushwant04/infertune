@@ -1,0 +1,6 @@
+InferTune
+Copyright 2026 Khushwant Sanwalot
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+It includes software developed by third parties under their own licenses, as
+listed in its dependency metadata (pyproject.toml, uv.lock).

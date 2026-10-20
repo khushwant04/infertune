@@ -444,9 +444,10 @@ It should be printed in every report.
 
 **Calibration.** `MFU` and `MBU` start as per-architecture priors. The calibration library can
 refine them per `(gpu, model_arch_class, framework_version)` from comparable stored measurements,
-as a small multiplicative correction on physically-derived features. That fitter is tested
-against synthetic data, but the CLI does not yet feed its output back into `tune`; completing
-benchmark provenance and that connection remains implementation work. Predictions should be
+as a small multiplicative correction on physically-derived features. `tune` fits them per TP
+degree from stored runs that match the GPU, model, engine and engine version exactly, and runs
+with missing provenance are never pooled. The fitter is tested against synthetic data and against
+runs recorded from a fake engine process; it has not yet seen real measurements. Predictions should be
 reported as intervals whose width reflects how much calibration data exists — no data, wide
 interval, stated as such.
 Also worth harvesting: vLLM logs the exact `--kv-cache-memory` value reproducing its own
@@ -505,19 +506,20 @@ capability matrix. That's the acceptance test for the abstraction.
 
 ## 8. Search
 
-The first two steps are the currently implemented `tune` dry-run. Steps 3–6 describe the target
-engine-backed workflow; the reusable search core models them through an injected
-boot-and-measure callback, but the CLI does not yet provide engine lifecycle management.
+Steps 1–2 are the `tune` dry-run. Steps 3–6 are `tune --execute`: the search core takes an
+injected boot-and-measure callback, and `infertune.runner.EngineExecutor` is its production
+implementation (launch, readiness, log capture, process-group cleanup, sweep, record). The
+executing path has been tested against a fake engine process, not yet on a GPU.
 
 ```
 1. Enumerate      parallelism × quant × kv_dtype × context   (small, discrete, structured)
 2. Analytic prune Drop infeasible (memory ledger) and dominated (roofline) candidates.
                   Typically 1000s → single digits. This is where the estimator earns its keep.
-3. Outer loop     For each surviving candidate: boot once. Harvest startup facts. [target]
-4. Inner loop     Sweep client concurrency / rate without restarting.              [target]
+3. Outer loop     For each surviving candidate: boot once. Harvest startup facts.
+4. Inner loop     Sweep client concurrency / rate without restarting.
                   → full throughput-vs-latency curve; find the SLA knee.
-5. Select         Pareto front over (throughput, p99 latency); pick by objective.   [target]
-6. Record         Persist measurements; update calibration coefficients.           [target]
+5. Select         Highest measured throughput that satisfies the SLA.
+6. Record         Persist measurements; the next search calibrates from them.
 ```
 
 Bayesian optimization over surviving continuous knobs is deliberately not implemented. Analytic
@@ -626,9 +628,10 @@ Two modelling notes worth recording, both of which change reported numbers:
 * **Output throughput excludes prompt tokens.** Counting both inflates the figure by the
   input/output ratio, which is the usual reason published throughput numbers are incomparable.
 
-**M4 — SGLang adapter + search (2 wk). 🟡 Search core and dry-run implemented; runtime
-integration pending.** Second adapter, engine registry, analytic prune, Pareto selection,
-injected outer/inner-loop orchestration, and `infertune tune` dry-run.
+**M4 — SGLang adapter + search (2 wk). 🟡 Search core, dry-run and `--execute` implemented;
+GPU run pending.** Second adapter, engine registry, analytic prune, Pareto selection,
+injected outer/inner-loop orchestration, `infertune tune`, and the engine lifecycle behind
+`tune --execute` (`infertune.runner`).
 
 *Accept:*
 
