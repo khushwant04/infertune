@@ -13,6 +13,7 @@ the absence and fall back to the fractional lever, reporting that it did so.
 
 from __future__ import annotations
 
+import shlex
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import Enum
@@ -147,8 +148,7 @@ class LaunchSpec:
     notes: tuple[str, ...] = ()
 
     def command(self, executable: str | None = None) -> list[str]:
-        exe = executable or self.engine
-        cmd = [exe, "serve", self.model]
+        cmd = [*shlex.split(executable or self.engine), "serve", self.model]
         for flag, value in self.args:
             cmd.append(flag)
             if value is not None:
@@ -231,6 +231,16 @@ class FrameworkAdapter(ABC):
     @abstractmethod
     def parse_startup_log(self, text: str) -> StartupFacts:
         """Extract measured memory facts from the engine's own startup output."""
+
+    def command(self, spec: LaunchSpec, executable: str | None = None) -> list[str]:
+        """The argv that launches ``spec``.
+
+        Engines disagree on how a server is started (``vllm serve <model>`` versus
+        ``python -m sglang.launch_server --model-path <model>``), so the launcher asks the
+        adapter rather than assuming one shape. ``executable`` replaces the launcher prefix and
+        may contain several words, e.g. a virtualenv's interpreter plus a module.
+        """
+        return spec.command(executable)
 
     def validate(self, spec: LaunchSpec) -> tuple[Diagnostic, ...]:
         """Check a spec against the installed schema.

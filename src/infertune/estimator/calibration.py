@@ -20,7 +20,8 @@ such points are skipped and counted as rejected rather than silently absorbed.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from collections.abc import Iterable
+from dataclasses import dataclass, field, replace
 from statistics import median
 
 from ..core.dtypes import DType
@@ -225,10 +226,38 @@ def calibrated_for(
     """Calibrate using only runs that match ``key`` exactly.
 
     Engine version is part of the match on purpose: memory accounting and scheduling defaults
-    change between releases, so mixing versions pollutes the fit.
+    change between releases, so mixing versions pollutes the fit. A key with missing provenance
+    (an ``unknown`` GPU or engine version) matches nothing and returns the prior.
     """
+    if not key.is_complete:
+        empty = calibrate([], model, gpu, prior=prior)
+        return CalibrationResult(
+            coefficients=empty.coefficients,
+            rejected=(f"incomplete provenance {key}; not calibrating",),
+        )
     matching = [r for r in store_runs if r.key == key]
     return calibrate(matching, model, gpu, prior=prior)
+
+
+def calibrate_by_tp(
+    store_runs: list[StoredRun],
+    key: RunKey,
+    tensor_parallel: Iterable[int],
+    model: ModelProfile,
+    gpu: GPUProfile,
+    *,
+    prior: RooflineCoefficients | None = None,
+) -> dict[int, CalibrationResult]:
+    """One calibration per tensor-parallel degree.
+
+    TP changes the communication term and the per-GPU share of every byte, so a tp=1 fit says
+    nothing reliable about tp=2. Each degree is fitted only from runs at that degree, and a
+    degree without evidence keeps the prior.
+    """
+    return {
+        tp: calibrated_for(store_runs, replace(key, tensor_parallel=tp), model, gpu, prior=prior)
+        for tp in sorted(set(tensor_parallel))
+    }
 
 
 __all__ = [
@@ -237,6 +266,7 @@ __all__ = [
     "CalibrationResult",
     "FitSample",
     "calibrate",
+    "calibrate_by_tp",
     "calibrated_for",
     "fit_mbu_from_decode",
     "fit_mfu_from_prefill",

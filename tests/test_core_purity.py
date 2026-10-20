@@ -61,12 +61,22 @@ def test_core_never_imports_torch_or_heavy_deps() -> None:
 
 
 def test_core_is_importable_without_cli_dependencies() -> None:
-    """Importing core must not transitively pull in typer/rich."""
-    for name in list(sys.modules):
-        if name.startswith(("infertune", "typer", "rich")):
+    """Importing core must not transitively pull in typer/rich.
+
+    The purge is undone afterwards. Leaving it in place splits the interpreter in two: modules
+    imported before this test keep the old ``typer``, modules imported after it get a new one,
+    and objects from the two copies fail each other's ``isinstance`` checks in later tests.
+    """
+    prefixes = ("infertune", "typer", "rich")
+    saved = {name: module for name, module in sys.modules.items() if name.startswith(prefixes)}
+    for name in saved:
+        del sys.modules[name]
+    try:
+        import infertune.core  # noqa: F401
+
+        leaked = [m for m in sys.modules if m.startswith(("typer", "rich"))]
+        assert not leaked, f"importing infertune.core pulled in CLI dependencies: {leaked}"
+    finally:
+        for name in [n for n in sys.modules if n.startswith(prefixes)]:
             del sys.modules[name]
-
-    import infertune.core  # noqa: F401
-
-    leaked = [m for m in sys.modules if m.startswith(("typer", "rich"))]
-    assert not leaked, f"importing infertune.core pulled in CLI dependencies: {leaked}"
+        sys.modules.update(saved)

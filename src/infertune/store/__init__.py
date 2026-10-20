@@ -6,10 +6,18 @@ only comparable measurements are ever pooled for calibration.
 
 from __future__ import annotations
 
-from .sqlite import SCHEMA_VERSION, MeasurementStore, RunKey, StoredPoint, StoredRun
+from .sqlite import (
+    SCHEMA_VERSION,
+    UNKNOWN,
+    MeasurementStore,
+    RunKey,
+    StoredPoint,
+    StoredRun,
+)
 
 __all__ = [
     "SCHEMA_VERSION",
+    "UNKNOWN",
     "MeasurementStore",
     "RunKey",
     "StoredPoint",

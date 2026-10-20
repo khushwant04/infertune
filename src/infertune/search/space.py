@@ -16,6 +16,7 @@ digits, which is what makes the search affordable.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from itertools import product
 
@@ -176,6 +177,7 @@ def score_all(
     workload: WorkloadProfile,
     *,
     coefficients: RooflineCoefficients | None = None,
+    coefficients_by_tp: Mapping[int, RooflineCoefficients] | None = None,
     samples: int = 400,
 ) -> tuple[list[ScoredCandidate], int]:
     """Score every candidate, returning the feasible ones and the infeasible count.
@@ -183,11 +185,15 @@ def score_all(
     Separated from :func:`prune` so an exhaustive baseline can boot *everything feasible*
     without inheriting the dominance filter — otherwise the "grid search" it is measured
     against would not actually be a grid search.
+
+    ``coefficients_by_tp`` overrides ``coefficients`` for the tensor-parallel degrees it
+    names, because a calibration is only valid at the degree it was measured at.
     """
     scored: list[ScoredCandidate] = []
     infeasible = 0
     for candidate in candidates:
-        result = score(candidate, model, gpu, workload, coefficients=coefficients, samples=samples)
+        chosen = (coefficients_by_tp or {}).get(candidate.tensor_parallel, coefficients)
+        result = score(candidate, model, gpu, workload, coefficients=chosen, samples=samples)
         if result is None:
             infeasible += 1
         else:
@@ -202,6 +208,7 @@ def prune(
     workload: WorkloadProfile,
     *,
     coefficients: RooflineCoefficients | None = None,
+    coefficients_by_tp: Mapping[int, RooflineCoefficients] | None = None,
     keep: int = 8,
     samples: int = 400,
 ) -> PruneReport:
@@ -213,7 +220,13 @@ def prune(
     """
     reasons: list[str] = []
     scored, infeasible = score_all(
-        candidates, model, gpu, workload, coefficients=coefficients, samples=samples
+        candidates,
+        model,
+        gpu,
+        workload,
+        coefficients=coefficients,
+        coefficients_by_tp=coefficients_by_tp,
+        samples=samples,
     )
 
     if not scored:

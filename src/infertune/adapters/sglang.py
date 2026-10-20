@@ -29,6 +29,8 @@ which is a live demonstration of why the schema is introspected rather than tabu
 from __future__ import annotations
 
 import json
+import shlex
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -343,9 +345,18 @@ class SGLangAdapter(FrameworkAdapter):
             notes=draft.notes,
         )
 
-    def command(self, spec: LaunchSpec) -> list[str]:
-        """SGLang launches via a module and ``--model-path``, not ``serve <model>``."""
-        cmd = ["python", "-m", "sglang.launch_server", "--model-path", spec.model]
+    def command(self, spec: LaunchSpec, executable: str | None = None) -> list[str]:
+        """SGLang launches via a module and ``--model-path``, not ``serve <model>``.
+
+        The default interpreter is the one running InferTune: the schema was introspected
+        from the SGLang importable here, so that is the SGLang that must be launched.
+        """
+        prefix = (
+            shlex.split(executable)
+            if executable
+            else [sys.executable, "-m", "sglang.launch_server"]
+        )
+        cmd = [*prefix, "--model-path", spec.model]
         for flag, value in spec.args:
             cmd.append(flag)
             if value is not None:

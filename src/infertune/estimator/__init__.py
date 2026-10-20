@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from .calibration import CalibrationResult, calibrate, calibrated_for
+from .calibration import CalibrationResult, calibrate, calibrate_by_tp, calibrated_for
 from .memory import (
     EngineOverheads,
     InfeasibleConfigurationError,
@@ -35,6 +35,7 @@ __all__ = [
     "PerfPrediction",
     "RooflineCoefficients",
     "calibrate",
+    "calibrate_by_tp",
     "calibrated_for",
     "critical_batch_size",
     "decode_step",

@@ -24,6 +24,7 @@ class MockEngine:
         fail_above_concurrency: return HTTP 503 when more than this many requests are in
             flight, to exercise the harness's error-rate handling.
         status: force a status code for every request.
+        host, port: where to listen; port 0 picks a free one.
     """
 
     def __init__(
@@ -33,11 +34,15 @@ class MockEngine:
         tpot_s: float = 0.005,
         fail_above_concurrency: int | None = None,
         status: int = 200,
+        host: str = "127.0.0.1",
+        port: int = 0,
     ) -> None:
         self.ttft_s = ttft_s
         self.tpot_s = tpot_s
         self.fail_above_concurrency = fail_above_concurrency
         self.status = status
+        self.host = host
+        self.port = port
         self.requests: list[dict[str, Any]] = []
         self.max_observed_concurrency = 0
         self._in_flight = 0
@@ -116,7 +121,7 @@ class MockEngine:
                     with engine._lock:
                         engine._in_flight -= 1
 
-        self._server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        self._server = ThreadingHTTPServer((self.host, self.port), Handler)
         self._server.daemon_threads = True
         self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
         self._thread.start()

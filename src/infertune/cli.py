@@ -7,6 +7,10 @@ declines, because the user cannot tell the difference until the deployment OOMs.
 
 from __future__ import annotations
 
+import shlex
+from pathlib import Path
+from typing import TYPE_CHECKING
+
 import typer
 from rich.console import Console
 from rich.table import Table
@@ -25,6 +29,12 @@ from .core import (
 from .core.gpu import GPUProfile
 from .core.model import ModelProfile
 from .core.plan import ResourcePlan
+
+if TYPE_CHECKING:
+    from .adapters.base import FrameworkAdapter
+    from .core.workload import SLA
+    from .estimator.roofline import RooflineCoefficients
+    from .search import PruneReport
 
 app = typer.Typer(
     name="infertune",
@@ -431,6 +441,44 @@ def plan_cmd(
     _render_plan(profile_, gpu, plan, max_num_seqs, tp)
 
 
+def _gpu_label(gpu_key: str | None) -> str:
+    """The GPU's name as ``tune`` keys it, from the spec DB or detection; empty if unknown."""
+    from .hardware import nvml, specdb
+
+    try:
+        return specdb.load(gpu_key).name if gpu_key else nvml.discover().name
+    except Exception:
+        return ""
+
+
+def _engine_version(engine: str) -> str:
+    """The installed engine's version, or empty when it cannot be introspected here."""
+    from .adapters import UnknownEngineError, get_adapter
+
+    try:
+        return get_adapter(engine).capabilities().version
+    except (UnknownEngineError, RuntimeError):
+        return ""
+
+
+def _kv_bytes_per_token(model: str, tp: int, kv_dtype: str | None) -> int | None:
+    """Per-GPU KV bytes per token, which MBU calibration needs; ``None`` if not derivable.
+
+    Without an explicit dtype this follows the estimator's default — the weight dtype, or bf16
+    for sub-byte (quantized) weights, which engines never use as a KV dtype.
+    """
+    from .models import ModelMetadataError, analyze
+
+    try:
+        profile_ = analyze(model)
+        dtype = DType.parse(kv_dtype) if kv_dtype else profile_.weight_dtype
+        if dtype.is_sub_byte:
+            dtype = DType.BF16
+        return profile_.cache.marginal_bytes_per_token(dtype, tensor_parallel_size=tp)
+    except (ModelMetadataError, ValueError):
+        return None
+
+
 @app.command()
 def benchmark(
     model: str = typer.Option(..., "--model", "-m", help="Model name the server serves."),
@@ -446,18 +494,33 @@ def benchmark(
     ttft_p99_ms: float | None = typer.Option(None, "--ttft-p99-ms", help="TTFT SLA."),
     tpot_p99_ms: float | None = typer.Option(None, "--tpot-p99-ms", help="TPOT SLA."),
     store_path: str | None = typer.Option(None, "--store", help="SQLite file to record into."),
-    gpu_name: str = typer.Option("", "--gpu-name", help="Label for the store key."),
-    engine_version: str = typer.Option("", "--engine-version", help="Label for the store key."),
+    engine: str = typer.Option("vllm", "--engine", help="Engine serving at --url."),
+    tp: int = typer.Option(1, "--tp", help="Tensor parallel size the engine runs with."),
+    kv_dtype: str | None = typer.Option(
+        None, "--kv-dtype", help="KV cache dtype the engine runs with; default follows weights."
+    ),
+    gpu_key: str | None = typer.Option(
+        None, "--gpu", help="Spec-DB key of the serving GPU; omit to detect."
+    ),
+    gpu_name: str = typer.Option("", "--gpu-name", help="GPU label; overrides --gpu."),
+    engine_version: str = typer.Option(
+        "", "--engine-version", help="Engine version; omit to introspect the installed engine."
+    ),
 ) -> None:
     """Sweep concurrency against a **running** engine and record the curve.
 
     Deliberately does not start or stop anything. Engine boots cost minutes while changing
     client-side concurrency costs nothing, so one boot should yield the whole
     latency-throughput curve (see docs/plan.md §2.4).
+
+    With ``--store``, the run is keyed by GPU, model, engine, engine version and TP. A run
+    whose GPU or engine version cannot be established is stored as ``unknown`` and is never
+    used for calibration.
     """
     from .bench import EndpointConfig, SweepConfig, sweep_concurrency, wait_for_endpoint
     from .core.workload import SLA
-    from .store import MeasurementStore, RunKey, StoredPoint, StoredRun
+    from .runner import stored_points
+    from .store import UNKNOWN, MeasurementStore, RunKey, StoredRun
 
     try:
         ladder = tuple(sorted({int(x) for x in concurrencies.split(",") if x.strip()}))
@@ -471,6 +534,9 @@ def benchmark(
     except ValueError as exc:
         console.print(f"[red]error:[/red] {exc}")
         raise typer.Exit(code=1) from None
+
+    gpu_name = gpu_name or _gpu_label(gpu_key)
+    engine_version = engine_version or _engine_version(engine)
 
     endpoint = EndpointConfig(base_url=base_url, model=model)
     console.print(f"waiting for {base_url} ...")
@@ -512,7 +578,7 @@ def benchmark(
             config,
             sla=sla,
             model=model,
-            engine="vllm",
+            engine=engine,
             engine_version=engine_version,
             gpu=gpu_name,
             on_point=show,
@@ -544,39 +610,43 @@ def benchmark(
         console.print(f"[dim]! {note}[/dim]")
 
     if store_path:
+        key = RunKey(
+            gpu=gpu_name or UNKNOWN,
+            model=model,
+            engine=engine,
+            engine_version=engine_version or UNKNOWN,
+            tensor_parallel=tp,
+        )
         store = MeasurementStore(store_path)
         run_id = store.record(
             StoredRun(
-                key=RunKey(
-                    gpu=gpu_name or "unknown",
-                    model=model,
-                    engine="vllm",
-                    engine_version=engine_version or "unknown",
-                ),
-                points=tuple(
-                    StoredPoint(
-                        concurrency=p.concurrency,
-                        duration_s=p.duration_s,
-                        requests_ok=len(p.successful),
-                        requests_failed=len(p.failed),
-                        prompt_tokens=p.prompt_tokens,
-                        output_tokens=p.output_tokens,
-                        output_tps=p.output_throughput_tokens_s,
-                        ttft_p50_ms=p.ttft.p50_ms or None,
-                        ttft_p99_ms=p.ttft.p99_ms or None,
-                        tpot_p50_ms=p.tpot.p50_ms or None,
-                        tpot_p99_ms=p.tpot.p99_ms or None,
-                    )
-                    for p in sweep.points
-                ),
+                key=key,
+                gpu_count=tp,
+                kv_dtype=kv_dtype,
+                kv_bytes_per_token=_kv_bytes_per_token(model, tp, kv_dtype),
+                points=stored_points(sweep),
                 notes=" | ".join(sweep.notes),
+                extra={"source": "benchmark", "infertune_version": __version__},
             )
         )
+        if not key.is_complete:
+            console.print(
+                "[yellow]![/yellow] stored without full provenance "
+                f"(gpu={key.gpu}, engine_version={key.engine_version}); this run will not be "
+                "used for calibration. Pass --gpu/--gpu-name and --engine-version."
+            )
         runs, points = store.count()
         console.print()
         console.print(
             f"[dim]recorded run {run_id} in {store_path} ({runs} runs, {points} points)[/dim]"
         )
+
+
+def _ladder(text: str) -> tuple[int, ...]:
+    ladder = tuple(sorted({int(x) for x in text.split(",") if x.strip()}))
+    if not ladder:
+        raise ValueError("empty concurrency ladder")
+    return ladder
 
 
 @app.command()
@@ -595,35 +665,72 @@ def tune(
     dry_run: bool = typer.Option(
         True,
         "--dry-run/--execute",
-        help="Plan the search; execute mode is not implemented yet.",
+        help="Plan the search only, or boot the survivors and measure them.",
+    ),
+    store_path: str = typer.Option(
+        "infertune.db", "--store", help="SQLite file: calibrates predictions, records runs."
+    ),
+    calibrate_: bool = typer.Option(
+        True, "--calibrate/--no-calibrate", help="Fit roofline coefficients from the store."
+    ),
+    concurrencies: str = typer.Option(
+        "1,2,4,8,16,32,64,128,256", "--concurrencies", help="Sweep ladder per boot."
+    ),
+    requests_per_point: int = typer.Option(32, "--requests", help="Requests per sweep point."),
+    boot_timeout_s: float = typer.Option(
+        900, "--boot-timeout", help="Seconds to wait for each engine to become ready."
+    ),
+    log_dir: str = typer.Option("infertune-runs", "--log-dir", help="Engine logs go here."),
+    host: str = typer.Option("127.0.0.1", "--host", help="Interface engines bind to."),
+    port: int = typer.Option(0, "--port", help="Engine port; 0 picks a free one per boot."),
+    executable: str | None = typer.Option(
+        None, "--executable", help="Engine launcher, e.g. '/opt/venv/bin/vllm'."
     ),
 ) -> None:
     """Search the configuration space under an SLA.
 
-    The implemented dry-run enumerates the restart-required space, prunes it analytically to
-    the Pareto frontier, and reports which candidates a future execution path should launch.
-    Engine lifecycle management is not implemented, so ``--execute`` fails explicitly rather
-    than returning success without taking measurements.
+    Enumerates the restart-required space, prunes it analytically to the Pareto frontier, and
+    ranks the survivors. With ``--execute`` it then boots each survivor on this machine, sweeps
+    client-side concurrency on every boot, records the runs, and picks the measured winner.
     """
-    if not dry_run:
-        console.print(
-            "[red]error:[/red] tune --execute is not implemented; "
-            "no engine was started and no measurements were taken."
-        )
-        raise typer.Exit(code=2)
-
     from .adapters import UnknownEngineError, get_adapter
     from .core.workload import SLA
     from .hardware import nvml, specdb
     from .models import ModelMetadataError, analyze
     from .search import enumerate_candidates, prune
 
+    executing = not dry_run
+    no_boot = "no engine was started and no measurements were taken."
+
+    try:
+        ladder = _ladder(concurrencies)
+        if boot_budget < 1:
+            raise ValueError("--boots must be >= 1")
+    except ValueError as exc:
+        console.print(f"[red]error:[/red] {exc}")
+        raise typer.Exit(code=1) from None
+
     try:
         gpu = specdb.load(gpu_key, count=gpus) if gpu_key else nvml.discover(count=gpus)
     except Exception as exc:
         console.print(f"[red]error:[/red] {exc}")
+        if executing:
+            console.print(f"[red]cannot execute:[/red] {no_boot}")
+            raise typer.Exit(code=2) from None
         console.print("[dim]Pass --gpu <key> to select hardware without detection.[/dim]")
         raise typer.Exit(code=1) from None
+
+    # Executing needs the installed engine's own schema; a dry run only reports it.
+    adapter: FrameworkAdapter | None = None
+    adapter_error = ""
+    try:
+        adapter = get_adapter(engine)
+    except (UnknownEngineError, RuntimeError) as exc:
+        if executing:
+            console.print(f"[red]cannot execute:[/red] {engine} is not usable here: {exc}")
+            console.print(f"[dim]{no_boot}[/dim]")
+            raise typer.Exit(code=2) from None
+        adapter_error = str(exc)
 
     with console.status(f"reading metadata for {model}..."):
         try:
@@ -637,16 +744,40 @@ def tune(
         output_tokens=LogNormal.from_median_p95(output_median, output_p95),
     )
     sla = SLA(ttft_p99_ms=ttft_p99_ms, tpot_p99_ms=tpot_p99_ms)
-
     candidates = enumerate_candidates(gpu)
-    with console.status(f"pruning {len(candidates)} candidates analytically..."):
-        report = prune(candidates, profile_, gpu, workload, keep=boot_budget)
 
     console.print()
     console.print(
         f"[bold]{profile_.model_id}[/bold] on {gpu.count}x {gpu.name}  "
         f"[dim](engine: {engine})[/dim]"
     )
+    if adapter is not None:
+        console.print(
+            f"[dim]{engine} {adapter.capabilities().version} "
+            f"(schema {adapter.schema().source})[/dim]"
+        )
+    else:
+        console.print(f"[dim]! {engine} not introspectable here: {adapter_error}[/dim]")
+
+    coefficients_by_tp = _calibration(
+        store_path if calibrate_ else None,
+        adapter,
+        profile_,
+        gpu,
+        model,
+        tuple(sorted({c.tensor_parallel for c in candidates})),
+    )
+
+    with console.status(f"pruning {len(candidates)} candidates analytically..."):
+        report = prune(
+            candidates,
+            profile_,
+            gpu,
+            workload,
+            coefficients_by_tp=coefficients_by_tp,
+            keep=boot_budget,
+        )
+
     console.print(
         f"enumerated {report.enumerated} -> {len(report.survivors)} to boot "
         f"[dim]({report.reduction_factor:.0f}x fewer)[/dim]"
@@ -680,23 +811,209 @@ def tune(
             f"tpot p99 <= {tpot_p99_ms or 'any'} ms[/dim]"
         )
 
-    try:
-        adapter = get_adapter(engine)
-        console.print()
-        console.print(
-            f"[dim]{engine} {adapter.capabilities().version} "
-            f"(schema {adapter.schema().source})[/dim]"
-        )
-    except (UnknownEngineError, RuntimeError) as exc:
-        console.print()
-        console.print(f"[dim]! {engine} not introspectable here: {exc}[/dim]")
-
-    if dry_run:
+    if not executing:
         console.print()
         console.print(
             f"[yellow]dry run[/yellow]: would boot {len(report.survivors)} configurations "
-            "and sweep concurrency on each. Engine execution is not implemented yet."
+            "and sweep concurrency on each. Re-run with --execute on the serving host to "
+            "measure them."
         )
+        return
+
+    if adapter is None:  # pragma: no cover - guarded above; keeps the type checker honest
+        raise typer.Exit(code=2)
+    _execute(
+        adapter=adapter,
+        report=report,
+        profile_=profile_,
+        gpu=gpu,
+        workload=workload,
+        sla=sla,
+        model=model,
+        boot_budget=boot_budget,
+        ladder=ladder,
+        requests_per_point=requests_per_point,
+        boot_timeout_s=boot_timeout_s,
+        log_dir=Path(log_dir),
+        host=host,
+        port=port or None,
+        executable=executable,
+        store_path=store_path,
+        coefficients_by_tp=coefficients_by_tp,
+    )
+
+
+def _calibration(
+    store_path: str | None,
+    adapter: FrameworkAdapter | None,
+    profile_: ModelProfile,
+    gpu: GPUProfile,
+    model: str,
+    tensor_parallel: tuple[int, ...],
+) -> dict[int, RooflineCoefficients] | None:
+    """Per-TP roofline coefficients fitted from comparable stored runs, when there are any.
+
+    Only runs that match this GPU, model, engine *and* engine version are used, and only when
+    the engine version is known: a calibration from another release is not evidence here.
+    """
+    from .estimator import calibrate_by_tp
+    from .store import MeasurementStore, RunKey
+
+    if store_path is None or not Path(store_path).exists():
+        return None
+    if adapter is None:
+        console.print("[dim]calibration skipped: engine version unknown[/dim]")
+        return None
+    key = RunKey(
+        gpu=gpu.name,
+        model=model,
+        engine=adapter.name,
+        engine_version=adapter.capabilities().version,
+    )
+    runs = MeasurementStore(store_path).runs()
+    results = calibrate_by_tp(runs, key, tensor_parallel, profile_, gpu)
+    fitted = {tp: r.coefficients for tp, r in results.items() if r.is_calibrated}
+    for tp, result in sorted(results.items()):
+        if result.is_calibrated:
+            console.print(f"[dim]calibrated tp={tp} from {store_path}: {result.summary()}[/dim]")
+        elif result.rejected:
+            console.print(
+                f"[dim]tp={tp}: no usable calibration in {store_path} "
+                f"({len(result.rejected)} samples rejected); using prior coefficients[/dim]"
+            )
+    return fitted or None
+
+
+def _execute(
+    *,
+    adapter: FrameworkAdapter,
+    report: PruneReport,
+    profile_: ModelProfile,
+    gpu: GPUProfile,
+    workload: WorkloadProfile,
+    sla: SLA,
+    model: str,
+    boot_budget: int,
+    ladder: tuple[int, ...],
+    requests_per_point: int,
+    boot_timeout_s: float,
+    log_dir: Path,
+    host: str,
+    port: int | None,
+    executable: str | None,
+    store_path: str,
+    coefficients_by_tp: dict[int, RooflineCoefficients] | None,
+) -> None:
+    """Boot the pruned survivors, measure them, and report the measured winner."""
+    from .bench import SweepConfig
+    from .runner import EngineExecutor, ExecutionConfig
+    from .search import search
+    from .store import MeasurementStore
+
+    executor = EngineExecutor(
+        adapter,
+        gpu,
+        workload,
+        ExecutionConfig(
+            model_id=model,
+            log_dir=log_dir,
+            host=host,
+            port=port,
+            executable=executable,
+            ready_timeout_s=boot_timeout_s,
+            sweep=SweepConfig(concurrencies=ladder, requests_per_point=requests_per_point),
+        ),
+        sla=sla,
+        store=MeasurementStore(store_path),
+        on_event=lambda line: console.print(f"[dim]{line}[/dim]"),
+    )
+
+    console.print()
+    console.print(f"[bold]executing[/bold]: up to {len(report.survivors)} boots")
+    result = search(
+        profile_,
+        gpu,
+        workload,
+        executor,
+        sla=sla,
+        boot_budget=boot_budget,
+        coefficients_by_tp=coefficients_by_tp,
+        candidates=tuple(s.candidate for s in report.survivors),
+    )
+
+    table = Table(box=None, pad_edge=False)
+    for column in (
+        "#",
+        "configuration",
+        "status",
+        "tok/s",
+        "at conc",
+        "pred tok/s",
+        "KV pred/engine",
+    ):
+        left = column in ("configuration", "status")
+        table.add_column(column, justify="left" if left else "right")
+    for index, (evaluation, record) in enumerate(
+        zip(result.evaluations, executor.records, strict=True), start=1
+    ):
+        measured = evaluation.throughput_within_sla(sla)
+        concurrency = evaluation.best_concurrency(sla)
+        kv = "-"
+        if record.startup and record.startup.kv_cache_bytes and record.predicted_kv_bytes:
+            kv = (
+                f"{fmt_bytes(record.predicted_kv_bytes)} / "
+                f"{fmt_bytes(record.startup.kv_cache_bytes)} ({record.kv_error:.1%})"
+            )
+        status = {"measured": "[green]measured[/green]", "failed": "[red]failed[/red]"}.get(
+            record.status, "[yellow]skipped[/yellow]"
+        )
+        table.add_row(
+            str(index),
+            evaluation.scored.candidate.label(),
+            status,
+            f"{measured:.0f}" if measured else "-",
+            str(concurrency or "-"),
+            f"{evaluation.scored.predicted_throughput:.0f}",
+            kv,
+        )
+    console.print()
+    console.print(table)
+
+    for record in executor.records:
+        if record.status != "measured":
+            console.print(f"[yellow]![/yellow] {record.candidate.label()}: {record.reason}")
+            if record.log_tail:
+                console.print(f"[dim]{record.log_tail}[/dim]")
+
+    measured_runs = sum(1 for r in executor.records if r.run_id is not None)
+    console.print()
+    console.print(
+        f"[dim]{result.boots_used} boots; {measured_runs} runs recorded in {store_path}; "
+        f"logs in {log_dir}[/dim]"
+    )
+
+    if result.best is None:
+        console.print(
+            f"[red]no configuration produced a usable measurement:[/red] {result.notes[-1]}"
+        )
+        raise typer.Exit(code=1)
+
+    winner = result.best.scored.candidate
+    record = next(r for r in executor.records if r.candidate == winner)
+    console.print()
+    console.print(
+        f"[bold green]winner[/bold green]: {winner.label()} — "
+        f"[bold]{result.best_throughput:.0f}[/bold] output tok/s at concurrency "
+        f"{result.best.best_concurrency(sla)}"
+    )
+    if result.prediction_error is not None:
+        console.print(
+            f"[dim]prediction error on the winner: {result.prediction_error:.0%} "
+            "(large gaps mean the roofline needs calibrating; re-running tune will use "
+            "these runs)[/dim]"
+        )
+    if record.spec is not None:
+        console.print(f"  [green]{shlex.join(adapter.command(record.spec, executable))}[/green]")
 
 
 def main() -> None:

@@ -11,6 +11,7 @@ Hermetic: the schema comes from a vendored dump, so no SGLang install is needed.
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 import pytest
@@ -180,7 +181,7 @@ class TestEngineDifferences:
         """SGLang launches a module with --model-path, not `serve <model>`."""
         spec = adapter.compile(make_plan(), "Qwen/Qwen3-8B", max_num_seqs=16)
         cmd = adapter.command(spec)
-        assert cmd[:4] == ["python", "-m", "sglang.launch_server", "--model-path"]
+        assert cmd[:4] == [sys.executable, "-m", "sglang.launch_server", "--model-path"]
         assert cmd[4] == "Qwen/Qwen3-8B"
 
 

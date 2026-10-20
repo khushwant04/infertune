@@ -126,11 +126,13 @@ def test_tune_declares_expected_options() -> None:
         assert option in declared, f"{option} missing; found {sorted(declared)}"
 
 
-def test_tune_execute_fails_before_doing_any_work() -> None:
-    """An unavailable execution path must never report a silent success."""
+def test_tune_execute_needs_hardware_before_doing_any_work() -> None:
+    """Without a GPU, execution must refuse up front rather than report a silent success.
+
+    The executing path itself is covered end to end in ``tests/test_runner.py``.
+    """
     result = runner.invoke(app, ["tune", "--model", "unused", "--execute"])
     assert result.exit_code == 2
-    assert "not implemented" in result.stdout
     assert "no engine was started" in result.stdout
     assert "dry run" not in result.stdout
 

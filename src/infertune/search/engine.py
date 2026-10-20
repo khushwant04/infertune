@@ -16,7 +16,7 @@ against a synthetic objective — which is how the "within 10% of a 50-point gri
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 
 from ..bench.metrics import SweepResult
@@ -107,6 +107,7 @@ def search(
     sla: SLA | None = None,
     boot_budget: int = 12,
     coefficients: RooflineCoefficients | None = None,
+    coefficients_by_tp: Mapping[int, RooflineCoefficients] | None = None,
     candidates: tuple[Candidate, ...] | None = None,
     prune_samples: int = 400,
 ) -> SearchResult:
@@ -133,6 +134,7 @@ def search(
         gpu,
         workload,
         coefficients=coefficients,
+        coefficients_by_tp=coefficients_by_tp,
         keep=boot_budget,
         samples=prune_samples,
     )

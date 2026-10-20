@@ -12,6 +12,8 @@ from __future__ import annotations
 import ast
 import json
 import re
+import shlex
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -353,6 +355,17 @@ class VLLMAdapter(FrameworkAdapter):
             diagnostics=(*diags, *self.validate(spec_out)),
             notes=spec_out.notes,
         )
+
+    def command(self, spec: LaunchSpec, executable: str | None = None) -> list[str]:
+        """``vllm serve``, preferring the ``vllm`` script beside this interpreter.
+
+        The schema was introspected from the vLLM importable here, so that is the vLLM that
+        must be launched, even when its virtualenv is not activated and so not on ``PATH``.
+        """
+        if executable is None:
+            sibling = Path(sys.executable).with_name("vllm")
+            executable = shlex.quote(str(sibling)) if sibling.is_file() else "vllm"
+        return spec.command(executable)
 
     # ---------------------------------------------------------------- log parsing
 

@@ -21,6 +21,9 @@ from typing import Any
 
 SCHEMA_VERSION = 1
 
+UNKNOWN = "unknown"
+"""Label recorded when provenance was not available. Never matched by calibration."""
+
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS schema_info (version INTEGER NOT NULL);
 
@@ -79,6 +82,19 @@ class RunKey:
     engine: str
     engine_version: str
     tensor_parallel: int = 1
+
+    @property
+    def is_complete(self) -> bool:
+        """True when every field identifies something real.
+
+        A run labelled ``unknown`` (or left blank) cannot be matched to the hardware and engine
+        it ran on, so it must never feed a calibration: it would silently pool measurements
+        from different machines or engine releases.
+        """
+        labels = (self.gpu, self.model, self.engine, self.engine_version)
+        return self.tensor_parallel >= 1 and all(
+            label.strip() and label.strip().lower() != UNKNOWN for label in labels
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -298,6 +314,7 @@ class MeasurementStore:
 
 __all__ = [
     "SCHEMA_VERSION",
+    "UNKNOWN",
     "MeasurementStore",
     "RunKey",
     "StoredPoint",
